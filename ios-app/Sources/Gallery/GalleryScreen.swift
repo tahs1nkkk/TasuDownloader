@@ -40,7 +40,7 @@ struct GalleryScreen: View {
             ContentUnavailableView(
                 "Fotoğraflar erişimi yok",
                 systemImage: "lock.fill",
-                description: Text("Galeri, indirilenleri Fotoğraflar kitaplığından okur. Ayarlar → RipSnip → Fotoğraflar'dan izin ver.")
+                description: Text("Galeri, indirilenleri Fotoğraflar kitaplığından okur. Ayarlar → TasuDownloader → Fotoğraflar'dan izin ver.")
             )
         } else if items.isEmpty {
             ContentUnavailableView(

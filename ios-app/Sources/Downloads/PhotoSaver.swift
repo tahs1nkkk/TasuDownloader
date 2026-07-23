@@ -6,7 +6,7 @@ enum PhotoSaverError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .accessDenied: return "Fotoğraflar erişimi verilmedi (Ayarlar → RipSnip)"
+        case .accessDenied: return "Fotoğraflar erişimi verilmedi (Ayarlar → TasuDownloader)"
         case .noAssetCreated: return "Fotoğraflar öğeyi kabul etmedi"
         }
     }

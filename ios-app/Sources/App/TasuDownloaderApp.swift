@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct RipSnipApp: App {
+struct TasuDownloaderApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()

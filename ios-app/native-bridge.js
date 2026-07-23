@@ -1,5 +1,5 @@
 /*
- * Native bridge for the RipSnip iOS app's in-app browser.
+ * Native bridge for the TasuDownloader iOS app's in-app browser.
  *
  * Plays the role ios-bridge.js plays in the Orion build, but instead of
  * answering messages in JS it forwards them to the app over

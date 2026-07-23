@@ -1,4 +1,4 @@
-# Builds the unsigned RipSnip .ipa on a free macOS runner. The artifact is
+# Builds the unsigned TasuDownloader .ipa on a free macOS runner. The artifact is
 # what SideStore/AltStore installs on the phone; no Mac or paid account needed.
 name: iOS App
 
@@ -39,8 +39,8 @@ jobs:
       - name: Build (unsigned)
         run: >
           xcodebuild
-          -project ios-app/RipSnip.xcodeproj
-          -scheme RipSnip
+          -project ios-app/TasuDownloader.xcodeproj
+          -scheme TasuDownloader
           -configuration Release
           -destination "generic/platform=iOS"
           -derivedDataPath build
@@ -52,24 +52,24 @@ jobs:
       - name: Package .ipa
         run: |
           mkdir -p dist Payload
-          cp -R "build/Build/Products/Release-iphoneos/RipSnip.app" Payload/
-          zip -qry "dist/RipSnip.ipa" Payload
+          cp -R "build/Build/Products/Release-iphoneos/TasuDownloader.app" Payload/
+          zip -qry "dist/TasuDownloader.ipa" Payload
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RipSnip-ipa
-          path: dist/RipSnip.ipa
+          name: TasuDownloader-ipa
+          path: dist/TasuDownloader.ipa
           retention-days: 14
 
       # Artifacts need a GitHub login to download; a release asset does not.
       # A rolling "latest" release keeps one stable URL the phone's browser
       # can fetch directly:
-      #   https://github.com/<owner>/<repo>/releases/download/latest/RipSnip.ipa
+      #   https://github.com/<owner>/<repo>/releases/download/latest/TasuDownloader.ipa
       - name: Publish rolling release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view latest >/dev/null 2>&1 || \
-            gh release create latest --title "RipSnip (latest)" \
+            gh release create latest --title "TasuDownloader (latest)" \
               --notes "Her push'ta güncellenen son derleme."
-          gh release upload latest dist/RipSnip.ipa --clobber
+          gh release upload latest dist/TasuDownloader.ipa --clobber

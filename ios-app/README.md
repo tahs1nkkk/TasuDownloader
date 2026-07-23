@@ -1,4 +1,4 @@
-# RipSnip — iOS uygulaması
+# TasuDownloader — iOS uygulaması
 
 Orion eklentisinin native hali: içinde tarayıcısı olan bir SwiftUI uygulaması.
 Site handler'ları (RedGifs / Reddit / Scrolller / Coomer / Instagram) yine
@@ -6,7 +6,7 @@ Site handler'ları (RedGifs / Reddit / Scrolller / Coomer / Instagram) yine
 
 Eklentiye göre kazançlar:
 
-| | Orion eklentisi | RipSnip uygulaması |
+| | Orion eklentisi | TasuDownloader uygulaması |
 |---|---|---|
 | Kayıt | fetch → paylaşım sayfası → "Kaydet" | **doğrudan Fotoğraflar'a, tek dokunuş** |
 | Büyük dosyalar | JS belleğine yüklenir | URLSession diske akıtır |
@@ -22,10 +22,11 @@ vermez; "overlay" bu yüzden uygulamanın kendi tarayıcısının içindedir.
 
 ```
 ios-app/
-  native-bridge.js     chrome.* → webkit.messageHandlers.rgNative köprüsü
-  Sources/             SwiftUI: Browser / Gallery / Settings
-  project.yml          XcodeGen spec'i (Xcode projesi CI'da üretilir)
-  Resources/generated/ scripts/build-ios-app-js.js çıktısı (git'e girmez)
+  native-bridge.js       chrome.* → webkit.messageHandlers.rgNative köprüsü
+  Sources/               SwiftUI: Browser / Gallery / Settings
+  project.yml            XcodeGen spec'i (Xcode projesi CI'da üretilir)
+  Resources/Assets.xcassets/  uygulama simgesi (1024², alfa kanalsız)
+  Resources/generated/   scripts/build-ios-app-js.js çıktısı (git'e girmez)
 ```
 
 `scripts/build-ios-app-js.js` üç enjeksiyon paketi üretir:
@@ -41,49 +42,37 @@ sessizdir.
 
 ## Derleme (Mac gerekmez)
 
-Depo GitHub'a çıkınca her push'ta `.github/workflows/build-ios-app.yml`
-imzasız `RipSnip.ipa` üretir. Bu depo henüz git değil; ilk kurulum:
+Her push'ta `.github/workflows/build-ios-app.yml` imzasız
+`TasuDownloader.ipa` üretir (public depo → macOS dakikaları sınırsız ücretsiz).
+Artifact indirmek GitHub girişi ister, release varlığı istemez; workflow bu
+yüzden sabit URL'li "latest" release'ini de günceller:
 
-```bash
-git init
 ```
-
-```bash
-git add -A
+https://github.com/tahs1nkkk/RedgifsRipsnipBot/releases/download/latest/TasuDownloader.ipa
 ```
-
-```bash
-git commit -m "RipSnip"
-```
-
-GitHub'da **public** bir depo aç (public depoda macOS dakikaları sınırsız
-ücretsizdir; private'ta ayda fiilen ~200 dakika ≈ 15-20 derleme) ve push'la:
-
-```bash
-git remote add origin https://github.com/KULLANICI/RedgifsRipsnipBot.git
-```
-
-```bash
-git push -u origin main
-```
-
-Sonra GitHub → Actions → "iOS App" → biten işin **Artifacts** bölümünden
-`RipSnip-ipa` indirilir.
 
 ## Telefona kurulum (ücretsiz Apple ID)
 
-İmzasız `.ipa`'yı telefon üstünde imzalayan bir yükleyici gerekir:
+İmzasız `.ipa`'yı telefon üstünde imzalayan bir yükleyici gerekir.
 
-1. **AltStore Classic** (basit yol): Windows'a [AltServer](https://altstore.io)
-   kur → iPhone'u aynı Wi-Fi'ye al → AltStore'u telefona yükle → `.ipa`'yı
-   telefona indir → AltStore → `+` → RipSnip.ipa. Yenileme: telefon PC ile aynı
-   ağdayken otomatik.
-2. **SideStore** (PC'siz yenileme): [sidestore.io](https://sidestore.io)
-   adımlarıyla kurulur; imzayı cihaz üstünde kendi yeniler, haftalık PC
-   buluşması gerekmez.
+**Sideloadly** (kullandığımız yol): Windows'a [sideloadly.io](https://sideloadly.io)
+kur → `.ipa`'yı **PC'ye** indir → iPhone'u USB ile bağla → `.ipa`'yı pencereye
+sürükle → Apple ID → Start. Telefonda Ayarlar → Genel → VPN ve Cihaz Yönetimi →
+geliştiriciye güven. iOS 16+ ayrıca Ayarlar → Gizlilik ve Güvenlik →
+**Geliştirici Modu**'nun açık olmasını ister (tek seferlik, telefonu yeniden
+başlatır).
 
-Ücretsiz Apple ID sınırları: imza **7 günde bir** yenilenmeli (yukarıdaki
-araçlar bunu otomatik yapar), aynı anda en fazla 3 sideload uygulama.
+Windows'ta Sideloadly, iTunes ve iCloud'un **Microsoft Store dışı** sürümlerini
+ister (`AppleMobileDeviceSupport` sürücüsü için).
+
+**AltStore Classic denendi, çalışmadı:** Apple ID'de Gelişmiş Veri Koruması
+açıkken AltServer `-27952 / "Update iCloud for Windows to the latest version"`
+ile giriş yapamıyor — Store dışı iCloud'un son sürümü 2020'den kalma 7.21 ve
+ADP'yi desteklemiyor. Sideloadly v0.60 ADP desteğini eklediği için ADP'yi
+kapatmaya gerek kalmıyor.
+
+Ücretsiz Apple ID sınırları: imza **7 günde bir** yenilenmeli, aynı anda en
+fazla 3 sideload uygulama.
 
 ## Kullanım
 

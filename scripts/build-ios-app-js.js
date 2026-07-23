@@ -1,5 +1,5 @@
 /*
- * Assembles the JS payload the RipSnip iOS app injects into its in-app
+ * Assembles the JS payload the TasuDownloader iOS app injects into its in-app
  * browser (WKWebView).
  *
  * Same philosophy as build-orion-ios.js: the site handlers are copied out of
