@@ -4,52 +4,91 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#0d0c0a">
   <title>Tasu Arşiv</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header>
-    <h1>Tasu Arşiv</h1>
-    <nav>
-      <button id="tab-lists" class="tab active">Listeler</button>
-      <button id="tab-media" class="tab">Medya</button>
+    <div class="brand">
+      <h1>Tasu Arşiv</h1>
+      <span class="tag">kişisel</span>
+    </div>
+    <nav aria-label="Bölümler">
+      <button id="tab-lists" class="tab" aria-selected="true">Listeler</button>
+      <button id="tab-media" class="tab" aria-selected="false">Medya</button>
       <button id="btn-logout" class="ghost" hidden>Çıkış</button>
     </nav>
   </header>
 
-  <!-- Giriş: tek gizli anahtar. localStorage'da tutulur, her istekte Bearer. -->
-  <section id="login" hidden>
-    <div class="card">
-      <h2>Giriş</h2>
-      <p>Uygulamadaki "Gizli anahtar" ile aynı değeri gir.</p>
-      <input id="token-input" type="password" placeholder="Gizli anahtar" autocomplete="current-password">
-      <label class="row">
-        <span>Medya sunucusu (opsiyonel)</span>
-        <input id="media-input" type="url" placeholder="https://makine.tailnet.ts.net">
-      </label>
-      <button id="btn-login">Giriş yap</button>
-      <p id="login-error" class="error" hidden></p>
-    </div>
-  </section>
+  <main>
+    <!-- Giriş: tek gizli anahtar. localStorage'da tutulur, her istekte Bearer. -->
+    <section id="login" hidden>
+      <div class="card">
+        <h2>Giriş</h2>
+        <p>Uygulamadaki "Gizli anahtar" ile aynı değeri gir. Anahtar yalnız bu tarayıcıda saklanır.</p>
+        <label class="field">
+          <span>Gizli anahtar</span>
+          <input id="token-input" type="password" autocomplete="current-password">
+        </label>
+        <label class="field">
+          <span>Medya sunucusu (opsiyonel — PC'nin ts.net adresi)</span>
+          <input id="media-input" type="url" placeholder="https://makine.tailnet.ts.net">
+        </label>
+        <button id="btn-login" class="primary">Giriş yap</button>
+        <p id="login-error" class="error" role="alert" hidden></p>
+      </div>
+    </section>
 
-  <section id="view-lists" hidden>
-    <p id="lists-empty" class="muted" hidden>Henüz liste yok — uygulamada oluşturduğun listeler burada görünür.</p>
-    <div id="lists-root"></div>
-  </section>
+    <section id="view-lists" hidden aria-label="Listeler">
+      <div class="toolbar">
+        <input id="lists-search" class="grow" type="search" placeholder="Listelerde ara…" aria-label="Listelerde ara">
+        <button id="lists-refresh" class="ghost" aria-label="Listeleri yenile">Yenile</button>
+      </div>
+      <div id="lists-root"></div>
+    </section>
 
-  <section id="view-media" hidden>
-    <p id="media-note" class="muted" hidden>Medya sunucusu adresi girilmedi. Çıkış yapıp giriş ekranında ekleyebilirsin.</p>
-    <div id="media-root" class="media-grid"></div>
-  </section>
+    <section id="view-media" hidden aria-label="Medya">
+      <div class="stats" id="media-stats" hidden>
+        <div class="stat"><b id="stat-count">–</b><span>dosya</span></div>
+        <div class="stat"><b id="stat-size">–</b><span>toplam</span></div>
+        <div class="stat"><b id="stat-free">–</b><span>PC'de boş</span></div>
+      </div>
+
+      <!-- PC'den tam kontrol: sürükle-bırak ya da seçerek yükleme -->
+      <div class="drop" id="drop-zone">
+        <span>Dosyaları buraya bırak</span>
+        <button id="btn-pick">ya da seç</button>
+        <input id="file-input" type="file" multiple hidden>
+      </div>
+
+      <div class="toolbar">
+        <input id="media-search" class="grow" type="search" placeholder="Dosya adında ara…" aria-label="Medyada ara">
+        <button class="chip" data-kind="" aria-pressed="true">Tümü</button>
+        <button class="chip" data-kind="video" aria-pressed="false">Video</button>
+        <button class="chip" data-kind="image" aria-pressed="false">Görsel</button>
+        <button id="media-sort" class="ghost" aria-label="Sıralamayı değiştir">Yeni → eski</button>
+      </div>
+
+      <p id="media-note" class="muted" hidden>Medya sunucusu adresi girilmedi. Çıkış yapıp giriş ekranında ekleyebilirsin.</p>
+      <div id="media-root" class="media-grid"></div>
+    </section>
+  </main>
 
   <!-- İnceleme kutusu -->
-  <dialog id="viewer">
+  <dialog id="viewer" aria-label="Medya inceleme">
     <div class="viewer-bar">
-      <span id="viewer-name"></span>
-      <button id="viewer-close" class="ghost">Kapat</button>
+      <span class="name" id="viewer-name"></span>
+      <span class="actions">
+        <a id="viewer-download" class="ghost" role="button" download>İndir</a>
+        <button id="viewer-delete" class="ghost danger">Sil</button>
+        <button id="viewer-close" class="ghost">Kapat</button>
+      </span>
     </div>
     <div id="viewer-body"></div>
   </dialog>
+
+  <div id="toast" hidden role="status"></div>
 
   <script src="app.js"></script>
 </body>
