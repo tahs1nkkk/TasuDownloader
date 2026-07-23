@@ -9,6 +9,8 @@ struct SettingsScreen: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var browser: BrowserController
     @ObservedObject private var favicons = FaviconLoader.shared
+    @State private var connectionReport: String?
+    @State private var testing = false
 
     var body: some View {
         NavigationStack {
@@ -25,7 +27,45 @@ struct SettingsScreen: View {
                 } header: {
                     Text("Yüzen indirme butonu")
                 } footer: {
-                    Text("Kısa dokunuş ekranın ortasındaki medyayı indirir. Basılı tutarsan sayfadaki tüm medya numaralanır, numaraya dokunarak seçersin. Bu boyut yalnızca bu butonu etkiler.")
+                    Text("Kısa dokunuş ekranın ortasındaki medyayı indirir. Basılı tutunca seçim modu açılır: ekran kararır, medyalara dokunarak seçersin (neon çerçeve), butona tekrar basınca seçilenler iner. Bu boyut yalnızca bu butonu etkiler.")
+                }
+
+                Section {
+                    TextField("https://makine.tailnet.ts.net", text: $settings.cloudBaseURL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                    TextField("https://tasu-arsiv.pages.dev", text: $settings.syncBaseURL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                    SecureField("Gizli anahtar", text: $settings.sharedToken)
+                    if settings.cloudConfigured {
+                        Picker("İndirilenler nereye", selection: $settings.downloadDestination) {
+                            ForEach(DownloadDestination.allCases) { destination in
+                                Text(destination.label).tag(destination)
+                            }
+                        }
+                    }
+                    Button {
+                        testConnection()
+                    } label: {
+                        if testing {
+                            HStack { Text("Sınanıyor…"); Spacer(); ProgressView() }
+                        } else {
+                            Text("Bağlantıyı sına")
+                        }
+                    }
+                    .disabled(testing || (!settings.cloudConfigured && !settings.syncConfigured))
+                    if let connectionReport {
+                        Text(connectionReport)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Bulut ve Eşitleme")
+                } footer: {
+                    Text("İlk satır PC'deki medya sunucusu (Tailscale Funnel adresi), ikincisi web arşiv sitesi. Tek gizli anahtar ikisini de açar; anahtar Keychain'de saklanır. Kurulum: depodaki cloud/README.md. Hedef \"Bulut\" iken indirilenler cihazda yer kaplamaz; webm de buluta inebilir.")
                 }
 
                 Section {
@@ -65,7 +105,7 @@ struct SettingsScreen: View {
                 } header: {
                     Text("Diğer")
                 } footer: {
-                    Text("Bir siteyi açtıktan sonra adres çubuğu gizlenir; ana sayfaya Tarayıcı sekmesine tekrar dokunarak ya da soldan sağa kaydırarak dönersin. İndirilenler doğrudan Fotoğraflar'a kaydedilir. Fotoğraflar'da Gizli klasörüne taşınanlar galeride de görünmez. webm dosyalarını Fotoğraflar kabul etmez.")
+                    Text("Bir siteyi açtıktan sonra adres çubuğu gizlenir; ana sayfaya Tarayıcı sekmesine tekrar dokunarak ya da soldan sağa kaydırarak dönersin. Fotoğraflar'da Gizli klasörüne taşınanlar galeride de görünmez.")
                 }
             }
             .navigationTitle("Ayarlar")
@@ -86,6 +126,41 @@ struct SettingsScreen: View {
         }
         .padding(.vertical, 6)
         .animation(.easeOut(duration: 0.12), value: settings.fabSize)
+    }
+
+    private func testConnection() {
+        testing = true
+        connectionReport = nil
+        Task {
+            var parts: [String] = []
+            if let cloud = CloudClient.fromSettings() {
+                do {
+                    let health = try await cloud.health()
+                    var line = "Medya sunucusu: ✓ (\(health.files) dosya"
+                    if let free = health.freeBytes {
+                        line += ", \(String(format: "%.0f", Double(free) / 1_073_741_824)) GB boş"
+                    }
+                    line += ")"
+                    parts.append(line)
+                } catch {
+                    parts.append("Medya sunucusu: ✗ \(error.localizedDescription)")
+                }
+            }
+            if settings.syncConfigured,
+               let base = URL(string: settings.syncBaseURL.trimmingCharacters(in: .whitespaces)) {
+                var request = URLRequest(url: base.appendingPathComponent("api/health"))
+                request.setValue("Bearer \(settings.sharedToken)", forHTTPHeaderField: "Authorization")
+                do {
+                    let (_, response) = try await URLSession.shared.data(for: request)
+                    let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    parts.append(code == 200 ? "Web arşivi: ✓" : "Web arşivi: ✗ HTTP \(code)")
+                } catch {
+                    parts.append("Web arşivi: ✗ \(error.localizedDescription)")
+                }
+            }
+            connectionReport = parts.isEmpty ? "Önce adres ve anahtar gir." : parts.joined(separator: "\n")
+            testing = false
+        }
     }
 
     private func siteBadge(_ site: SupportedSite) -> some View {

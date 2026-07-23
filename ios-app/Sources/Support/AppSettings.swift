@@ -1,5 +1,21 @@
 import Foundation
 
+/// Where a finished download ends up.
+enum DownloadDestination: String, CaseIterable, Identifiable {
+    case photos
+    case cloud
+    case both
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .photos: return "Fotoğraflar"
+        case .cloud: return "Bulut"
+        case .both: return "İkisi"
+        }
+    }
+}
+
 /// App-side settings store. The payload the in-app browser reads mirrors the
 /// extension's `rgRipsnipSettings` JSON (see edge-extension/common/settings.js),
 /// so the injected handlers see the exact shape they always have.
@@ -29,6 +45,17 @@ final class AppSettings: ObservableObject {
     @Published var searchSubreddit: String { didSet { persist() } }
     @Published var searchProviders: Set<String> { didSet { persist() } }
 
+    // MARK: Cloud & sync
+
+    /// The PC media server, e.g. https://makine.tailnet.ts.net — empty means
+    /// no cloud: downloads go to Photos regardless of `downloadDestination`.
+    @Published var cloudBaseURL: String { didSet { persist() } }
+    /// The Cloudflare Pages archive site, e.g. https://tasu-arsiv.pages.dev.
+    @Published var syncBaseURL: String { didSet { persist() } }
+    /// One secret unlocks both services. Lives in the Keychain, not defaults.
+    @Published var sharedToken: String { didSet { KeychainBox.set(sharedToken, for: "sharedToken"); notify() } }
+    @Published var downloadDestination: DownloadDestination { didSet { persist() } }
+
     /// Keys handlers wrote through chrome.storage.set (folder lists and the
     /// like). Kept verbatim and merged back into every read so those flows keep
     /// working; the native-owned keys below always win.
@@ -44,6 +71,10 @@ final class AppSettings: ObservableObject {
         searchUsername = defaults.string(forKey: "searchUsername") ?? ""
         searchSubreddit = defaults.string(forKey: "searchSubreddit") ?? ""
         searchProviders = Set(defaults.stringArray(forKey: "searchProviders") ?? ["reddit", "old"])
+        cloudBaseURL = defaults.string(forKey: "cloudBaseURL") ?? ""
+        syncBaseURL = defaults.string(forKey: "syncBaseURL") ?? ""
+        sharedToken = KeychainBox.get("sharedToken") ?? ""
+        downloadDestination = DownloadDestination(rawValue: defaults.string(forKey: "downloadDestination") ?? "") ?? .photos
         if let data = defaults.data(forKey: "extraSettings"),
            let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             extraSettings = parsed
@@ -51,6 +82,20 @@ final class AppSettings: ObservableObject {
             extraSettings = [:]
         }
         loading = false
+    }
+
+    /// True once the media server is reachable in principle; the effective
+    /// destination falls back to Photos while it is not.
+    var cloudConfigured: Bool {
+        !cloudBaseURL.trimmingCharacters(in: .whitespaces).isEmpty && !sharedToken.isEmpty
+    }
+
+    var syncConfigured: Bool {
+        !syncBaseURL.trimmingCharacters(in: .whitespaces).isEmpty && !sharedToken.isEmpty
+    }
+
+    var effectiveDestination: DownloadDestination {
+        cloudConfigured ? downloadDestination : .photos
     }
 
     private func persist() {
@@ -61,6 +106,14 @@ final class AppSettings: ObservableObject {
         defaults.set(searchUsername, forKey: "searchUsername")
         defaults.set(searchSubreddit, forKey: "searchSubreddit")
         defaults.set(Array(searchProviders), forKey: "searchProviders")
+        defaults.set(cloudBaseURL, forKey: "cloudBaseURL")
+        defaults.set(syncBaseURL, forKey: "syncBaseURL")
+        defaults.set(downloadDestination.rawValue, forKey: "downloadDestination")
+        notify()
+    }
+
+    private func notify() {
+        guard !loading else { return }
         NotificationCenter.default.post(name: Self.changedNotification, object: nil)
     }
 

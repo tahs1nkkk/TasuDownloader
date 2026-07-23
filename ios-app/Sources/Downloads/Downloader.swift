@@ -2,7 +2,8 @@ import Foundation
 
 /// Answers DIRECT_DOWNLOAD exactly like the Orion bridge did, but natively:
 /// URLSession streams to a temp file (no whole-video-in-JS-memory), and the
-/// finished file goes straight into Photos — no share sheet, no second tap.
+/// finished file goes to Photos, to the PC media server, or both — the
+/// destination is a setting.
 @MainActor
 final class Downloader: NSObject, ObservableObject {
     static let shared = Downloader()
@@ -11,6 +12,7 @@ final class Downloader: NSObject, ObservableObject {
         case idle
         case fetching(name: String, received: Int64, total: Int64, startedAt: Date)
         case saving(name: String)
+        case uploading(name: String)
         case done(String)
         case failed(String)
     }
@@ -32,9 +34,44 @@ final class Downloader: NSObject, ObservableObject {
         }
     }
 
+    // MARK: - Serial queue
+
+    // The select mode fires several DIRECT_DOWNLOADs in quick succession, each
+    // arriving as its own bridge message. Running them concurrently would race
+    // the progress HUD and hammer the site; a strict FIFO keeps one transfer on
+    // the wire at a time. All on the main actor, so this needs no locking.
+    private var busy = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    private func withSerialQueue<T>(_ operation: () async -> T) async -> T {
+        while busy {
+            await withCheckedContinuation { waiters.append($0) }
+        }
+        busy = true
+        defer {
+            busy = false
+            if !waiters.isEmpty { waiters.removeFirst().resume() }
+        }
+        return await operation()
+    }
+
     // MARK: - DIRECT_DOWNLOAD
 
     func handleDirectDownload(
+        _ message: [String: Any],
+        pageURL: URL?,
+        cookies: [HTTPCookie],
+        userAgent: String,
+        records: DownloadRecordStore
+    ) async -> [String: Any] {
+        await withSerialQueue {
+            await self.processDirectDownload(
+                message, pageURL: pageURL, cookies: cookies, userAgent: userAgent, records: records
+            )
+        }
+    }
+
+    private func processDirectDownload(
         _ message: [String: Any],
         pageURL: URL?,
         cookies: [HTTPCookie],
@@ -152,13 +189,16 @@ final class Downloader: NSObject, ObservableObject {
             throw DownloadError.notAnImage
         }
         let isVideo = MediaNaming.isVideo(mime: result.mimeType, filename: finalName)
-        if finalName.lowercased().hasSuffix(".webm") {
-            // Photos rejects webm outright; failing early gives a clear error
-            // instead of an opaque PHPhotosError.
+        let isWebm = finalName.lowercased().hasSuffix(".webm")
+        let destination = AppSettings.shared.effectiveDestination
+
+        // Photos rejects webm outright. The cloud takes anything, so webm only
+        // fails when Photos is the sole target — failing early gives a clear
+        // error instead of an opaque PHPhotosError.
+        if isWebm && destination == .photos {
             throw DownloadError.webmUnsupported
         }
 
-        phase = .saving(name: finalName)
         // Photos keeps the resource's file name; rename the temp file so the
         // asset is not called "download-3F2A.tmp".
         let named = result.fileURL.deletingLastPathComponent().appendingPathComponent(finalName)
@@ -166,10 +206,36 @@ final class Downloader: NSObject, ObservableObject {
         try FileManager.default.moveItem(at: result.fileURL, to: named)
         defer { try? FileManager.default.removeItem(at: named) }
 
-        let assetId = try await PhotoSaver.save(fileURL: named, filename: finalName, isVideo: isVideo)
-        records.add(assetId: assetId, filename: finalName, site: site, sourceURL: sourceUrl, isVideo: isVideo)
+        var wrote: [String] = []
+        var problems: [String] = []
 
-        phase = .done("Fotoğraflara kaydedildi")
+        if destination != .photos, let cloud = CloudClient.fromSettings() {
+            phase = .uploading(name: finalName)
+            do {
+                try await cloud.upload(fileURL: named, preferredName: finalName)
+                wrote.append("Bulut")
+            } catch {
+                problems.append("bulut: \(error.localizedDescription)")
+            }
+        }
+
+        if destination != .cloud && !isWebm {
+            phase = .saving(name: finalName)
+            do {
+                let assetId = try await PhotoSaver.save(fileURL: named, filename: finalName, isVideo: isVideo)
+                records.add(assetId: assetId, filename: finalName, site: site, sourceURL: sourceUrl, isVideo: isVideo)
+                wrote.append("Fotoğraflar")
+            } catch {
+                problems.append("Fotoğraflar: \(error.localizedDescription)")
+            }
+        }
+
+        guard !wrote.isEmpty else {
+            throw DownloadError.nothingSaved(problems.joined(separator: " | "))
+        }
+        var summary = "Kaydedildi: \(wrote.joined(separator: " + "))"
+        if !problems.isEmpty { summary += " (⚠ \(problems.joined(separator: ", ")))" }
+        phase = .done(summary)
         scheduleDismiss(after: 1.8)
     }
 }
@@ -180,6 +246,7 @@ enum DownloadError: LocalizedError {
     case emptyBody
     case notAnImage
     case webmUnsupported
+    case nothingSaved(String)
 
     var errorDescription: String? {
         switch self {
@@ -187,7 +254,8 @@ enum DownloadError: LocalizedError {
         case .httpStatus(let code): return "HTTP \(code)"
         case .emptyBody: return "boş yanıt"
         case .notAnImage: return "görsel değil"
-        case .webmUnsupported: return "webm Fotoğraflar'a kaydedilemiyor"
+        case .webmUnsupported: return "webm Fotoğraflar'a kaydedilemiyor (Bulut hedefi webm alır)"
+        case .nothingSaved(let detail): return "hiçbir hedefe yazılamadı — \(detail)"
         }
     }
 }

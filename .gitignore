@@ -14,3 +14,7 @@ edge-profile/
 ripsnip-profile/
 *.zip
 *.log
+# Holds the media server's secret token; config.example.json is the template.
+cloud/server/config.json
+# Where the media server stores uploads when the config keeps the default dir.
+cloud/server/media/

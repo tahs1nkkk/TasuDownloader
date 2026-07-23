@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Tasu Arşiv</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Tasu Arşiv</h1>
+    <nav>
+      <button id="tab-lists" class="tab active">Listeler</button>
+      <button id="tab-media" class="tab">Medya</button>
+      <button id="btn-logout" class="ghost" hidden>Çıkış</button>
+    </nav>
+  </header>
+
+  <!-- Giriş: tek gizli anahtar. localStorage'da tutulur, her istekte Bearer. -->
+  <section id="login" hidden>
+    <div class="card">
+      <h2>Giriş</h2>
+      <p>Uygulamadaki "Gizli anahtar" ile aynı değeri gir.</p>
+      <input id="token-input" type="password" placeholder="Gizli anahtar" autocomplete="current-password">
+      <label class="row">
+        <span>Medya sunucusu (opsiyonel)</span>
+        <input id="media-input" type="url" placeholder="https://makine.tailnet.ts.net">
+      </label>
+      <button id="btn-login">Giriş yap</button>
+      <p id="login-error" class="error" hidden></p>
+    </div>
+  </section>
+
+  <section id="view-lists" hidden>
+    <p id="lists-empty" class="muted" hidden>Henüz liste yok — uygulamada oluşturduğun listeler burada görünür.</p>
+    <div id="lists-root"></div>
+  </section>
+
+  <section id="view-media" hidden>
+    <p id="media-note" class="muted" hidden>Medya sunucusu adresi girilmedi. Çıkış yapıp giriş ekranında ekleyebilirsin.</p>
+    <div id="media-root" class="media-grid"></div>
+  </section>
+
+  <!-- İnceleme kutusu -->
+  <dialog id="viewer">
+    <div class="viewer-bar">
+      <span id="viewer-name"></span>
+      <button id="viewer-close" class="ghost">Kapat</button>
+    </div>
+    <div id="viewer-body"></div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

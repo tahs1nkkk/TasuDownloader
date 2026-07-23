@@ -89,20 +89,33 @@ fazla 3 sideload uygulama.
 - Sitelerin üstündeki eklenti butonları **görünmez** — silinmediler, çünkü bir
   küçük resmin arkasındaki gerçek dosya URL'sini yalnızca onlar biliyor. Yüzen
   buton medyayı ekrandaki konumundan bulur, üstündeki butonu kendi tıklar.
-- **Yüzen buton**: kısa dokunuş ekranın ortasındaki medyayı indirir; **basılı
-  tutunca** sayfadaki tüm medya numaralanır ve numaraya dokunarak seçersin. Tek
-  dokunuş → ilerleme kartı → "Fotoğraflara kaydedildi". Paylaşım sayfası yok.
+- **Yüzen buton**: kısa dokunuş ekranın ortasındaki medyayı indirir. **Basılı
+  tutunca seçim modu** açılır: ekran kararır, her medyaya dokunarak seçersin —
+  seçilenler neon beyaz çerçeveyle parlar, kaydırıp seçmeye devam edebilirsin.
+  Kendiliğinden kapanmaz; butona **tekrar basınca** seçilenlerin hepsi sırayla
+  iner (buton onay işaretine döner, üzerinde sayaç rozeti). Basılı tutmak
+  iptal eder.
 - **Reddit'te** sol altta saydam arama butonu: bir dokunuş 2.5 saniyeliğine
   belirginleştirir, bu süre içinde ikinci dokunuş arama menüsünü açar; süre
   dolarsa tekrar saydamlaşır. Seçilen sağlayıcılar (Reddit / Old / Google /
   Bing) varsayılan tarayıcıda ayrı sekmeler olarak açılır.
-- **Galeri** sekmesi: bu uygulamanın indirdikleri, Fotoğraflar'dan orijinal
-  kalitede. Fotoğraflar'da Gizli klasörüne taşınan öğe galeriden de kaybolur;
-  Fotoğraflar'dan silinen de. Basılı tutarak yalnızca listeden çıkarılabilir.
-- **Ayarlar** sekmesi: yüzen butonun boyutu ve sol/sağ konumu, Reddit arama
-  balonu, desteklenen site listesi, site simgelerini yenile. "İndirme katmanını
-  kapat" ya da site site buton anahtarları yok — uygulamanın tek işi indirmek,
-  ve sayfa butonları artık UI değil, gizli birer çözümleyici.
+- **Google/Discord girişleri** artık çalışır: `window.open` gerçek bir alt
+  pencere açar ("Giriş penceresi"), OAuth bitince kendini kapatır. Eskiden bu
+  akış beyaz ekranda kalıyordu.
+- **Listeler** sekmesi: bağlantı listeleri. Tarayıcıda bir sayfadayken alt
+  sağdaki + butonu sayfayı listeye ekler; öğeye dokununca uygulama içinde
+  açılır. Ayarlar'da arşiv sitesi tanımlıysa listeler Supabase üzerinden web
+  arşivine eşitlenir (bkz. `cloud/README.md`).
+- **Galeri** sekmesi: Cihaz | Bulut. Cihaz tarafı Fotoğraflar aynasıdır; "Seç"
+  ile çoklu seçim yapıp **Listeden kaldır / Fotoğraflar'dan sil / Buluta
+  yükle** uygulanır (silmeyi iOS kendi onay kutusuyla sorar). Bulut tarafı
+  PC'deki medya sunucusunu listeler; video/görsel doğrudan PC'den akar,
+  kaydırarak silinir.
+- **Ayarlar** sekmesi: yüzen butonun boyutu ve sol/sağ konumu, bulut/eşitleme
+  adresleri + tek gizli anahtar + bağlantı sınaması, indirme hedefi
+  (Fotoğraflar / Bulut / İkisi), Reddit arama balonu, site listesi. "İndirme
+  katmanını kapat" ya da site site buton anahtarları yok — uygulamanın tek işi
+  indirmek, ve sayfa butonları artık UI değil, gizli birer çözümleyici.
 
 Arayüz iOS 26'nın **Liquid Glass** API'lerini kullanır (`glassEffect`,
 `GlassEffectContainer`). Dağıtım hedefi 17.0 olduğu için hepsi
@@ -111,8 +124,9 @@ tabanlı taklit devreye girer. Tek yer: `Sources/Support/LiquidGlass.swift`.
 
 ## Sınırlar
 
-- **webm** dosyalarını Fotoğraflar kabul etmez; indirme açık bir hata ile
-  düşer. (RedGifs/Reddit mp4 verdiği için pratikte nadirdir.)
+- **webm** dosyalarını Fotoğraflar kabul etmez; hedef yalnız Fotoğraflar'sa
+  indirme açık bir hata ile düşer. Hedefte Bulut varsa webm oraya normal iner.
+  (RedGifs/Reddit mp4 verdiği için pratikte nadirdir.)
 - Instagram/Coomer girişleri uygulamanın tarayıcısında bir kez yapılmalıdır;
   çerezler saklanır.
 - İlk derleme CI'da 1-2 iterasyon isteyebilir — bu depo Windows'ta, derleyici

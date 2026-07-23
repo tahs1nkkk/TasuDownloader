@@ -6,6 +6,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "8777", "--directory", "dist"],
       "port": 8777
+    },
+    {
+      "name": "tasu-arsiv-web",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8792", "--directory", "cloud/web/public"],
+      "port": 8792
     }
   ]
 }

@@ -20,6 +20,22 @@ final class BrowserController: NSObject, ObservableObject {
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var isLoading = false
+    @Published var pageTitle = ""
+
+    /// Select mode, mirrored from the page: the JS layer owns the frames and
+    /// posts PICKER_STATE on every change; the floating button reads these to
+    /// become a confirm button with a count badge.
+    @Published var pickerActive = false
+    @Published var pickerCount = 0
+
+    /// A real child window (Google/Apple OAuth open one). Kept as a separate
+    /// web view so the opener relationship — and the postMessage handshake the
+    /// login flow depends on — stays intact.
+    @Published var popupWebView: WKWebView?
+
+    /// Set by other tabs ("open this link in the browser"); RootView watches it
+    /// and switches tabs.
+    @Published var wantsBrowserTab = false
 
     let settings: AppSettings
     let records: DownloadRecordStore
@@ -30,11 +46,6 @@ final class BrowserController: NSObject, ObservableObject {
     /// The catalog entry for the page on screen, when there is one. Lets the
     /// floating button wear the site's colour.
     var currentSite: SupportedSite? { SiteCatalog.site(forHost: currentHost) }
-
-    enum FabMode: String {
-        case centre
-        case pick
-    }
 
     // WKWebView's default user agent lacks the Safari token, which makes
     // Instagram and Google refuse logins. Present as mobile Safari instead.
@@ -125,11 +136,24 @@ final class BrowserController: NSObject, ObservableObject {
     /// is also where the browser half takes over the screen.
     func openSite(_ site: SupportedSite) {
         showingHome = false
+        wantsBrowserTab = true
         load(site.url)
     }
 
+    /// Lists and other tabs land here: open the link and front the browser.
+    func openURL(_ url: String) {
+        showingHome = false
+        wantsBrowserTab = true
+        load(url)
+    }
+
     func goHome() {
+        if pickerActive { pickerCommand("cancel") }
         showingHome = true
+    }
+
+    func closePopup() {
+        popupWebView = nil
     }
 
     private func syncNavigationState() {
@@ -142,6 +166,7 @@ final class BrowserController: NSObject, ObservableObject {
             currentHost = url.host?.lowercased() ?? ""
             lastVisited = currentSite?.name ?? (url.host ?? url.absoluteString)
         }
+        pageTitle = webView.title ?? ""
     }
 
     // MARK: - Bridge
@@ -152,17 +177,53 @@ final class BrowserController: NSObject, ObservableObject {
         webView.evaluateJavaScript(js, in: nil, in: .defaultClient, completionHandler: nil)
     }
 
-    /// `.centre` is the short tap: take the media in the middle of the screen.
-    /// `.pick` is the long press: number every candidate and let the user pick.
-    func triggerFabDownload(_ mode: FabMode = .centre) {
+    /// Short tap on the floating button. Outside select mode it downloads the
+    /// centre-most media; inside, it downloads the selection.
+    func fabTapped() {
+        if pickerActive {
+            pickerCommand("confirm")
+            return
+        }
         guard let webView else { return }
-        let js = "window.__rgFabDownload ? window.__rgFabDownload('\(mode.rawValue)') : 'none';"
+        let js = "window.__rgFabDownload ? window.__rgFabDownload() : 'none';"
         webView.evaluateJavaScript(js, in: nil, in: .defaultClient) { result in
+            if case .success(let value) = result, let outcome = value as? String, outcome == "none" {
+                Downloader.shared.flash("İndirilecek medya bulunamadı")
+            }
+        }
+    }
+
+    /// Long press: enter select mode, or cancel it if it is already up.
+    func fabLongPressed() {
+        pickerCommand(pickerActive ? "cancel" : "start")
+    }
+
+    private func pickerCommand(_ op: String) {
+        guard let webView else { return }
+        let js = "window.__rgFabPicker ? window.__rgFabPicker('\(op)') : 'none';"
+        webView.evaluateJavaScript(js, in: nil, in: .defaultClient) { [weak self] result in
             guard case .success(let value) = result, let outcome = value as? String else { return }
-            switch outcome {
-            case "none": Downloader.shared.flash("İndirilecek medya bulunamadı")
-            case "picker": Downloader.shared.flash("Numaralardan birine dokun")
-            default: break
+            Task { @MainActor in
+                guard let self else { return }
+                switch op {
+                case "start":
+                    if outcome == "started" {
+                        self.pickerActive = true
+                        self.pickerCount = 0
+                    } else {
+                        Downloader.shared.flash("Seçilecek medya bulunamadı")
+                    }
+                case "confirm":
+                    self.pickerActive = false
+                    self.pickerCount = 0
+                    let count = Int(outcome) ?? 0
+                    if count == 0 {
+                        Downloader.shared.flash("Seçim yapılmadı")
+                    }
+                default:
+                    self.pickerActive = false
+                    self.pickerCount = 0
+                }
             }
         }
     }
@@ -195,6 +256,10 @@ final class BrowserController: NSObject, ObservableObject {
             switch type {
             case "OPEN_TAB":
                 if let urlString = message["url"] as? String { load(urlString) }
+                return ["ok": true]
+            case "PICKER_STATE":
+                pickerActive = message["active"] as? Bool ?? false
+                pickerCount = message["count"] as? Int ?? 0
                 return ["ok": true]
             case "START_RIPSNIP":
                 return ["ok": false, "error": "IOS03: Ripsnip iOS'ta desteklenmiyor"]
@@ -261,19 +326,46 @@ extension BrowserController: WKScriptMessageHandlerWithReply {
 // MARK: - WKNavigationDelegate / WKUIDelegate
 
 extension BrowserController: WKNavigationDelegate, WKUIDelegate {
+    // Links that leave the web entirely (mailto:, itms-apps:, intent:) used to
+    // dead-end as a white page; hand them to the system instead.
+    nonisolated func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        if let url = navigationAction.request.url,
+           let scheme = url.scheme?.lowercased(),
+           !["http", "https", "about", "blob", "data", "file"].contains(scheme) {
+            Task { @MainActor in
+                _ = await UIApplication.shared.open(url)
+            }
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.allow)
+    }
+
     nonisolated func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         Task { @MainActor in
+            guard webView == self.webView else { return }
             self.isLoading = true
             self.syncNavigationState()
         }
     }
 
     nonisolated func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        Task { @MainActor in self.syncNavigationState() }
+        Task { @MainActor in
+            guard webView == self.webView else { return }
+            // A real navigation tears the select-mode DOM down with the page.
+            self.pickerActive = false
+            self.pickerCount = 0
+            self.syncNavigationState()
+        }
     }
 
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Task { @MainActor in
+            guard webView == self.webView else { return }
             self.isLoading = false
             self.syncNavigationState()
             self.broadcastSettings()
@@ -281,23 +373,54 @@ extension BrowserController: WKNavigationDelegate, WKUIDelegate {
     }
 
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        Task { @MainActor in self.isLoading = false }
+        Task { @MainActor in
+            guard webView == self.webView else { return }
+            self.isLoading = false
+        }
     }
 
     nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        Task { @MainActor in self.isLoading = false }
+        Task { @MainActor in
+            guard webView == self.webView else { return }
+            self.isLoading = false
+        }
     }
 
-    // target=_blank links load in the same view; the app has one tab.
+    // window.open gets a real child web view. This is what fixes "log in with
+    // Google" — the popup must exist for the opener handshake to complete, and
+    // it MUST be built from the configuration WebKit hands us or WebKit
+    // crashes. WKUIDelegate calls arrive on the main thread, so hopping onto
+    // the main actor synchronously here is legitimate.
     nonisolated func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        if let url = navigationAction.request.url {
-            Task { @MainActor in self.webView?.load(URLRequest(url: url)) }
+        MainActor.assumeIsolated {
+            if let existing = self.popupWebView {
+                // A popup opening another window: reuse the surface we have.
+                if let url = navigationAction.request.url {
+                    existing.load(URLRequest(url: url))
+                }
+                return nil
+            }
+            let child = WKWebView(frame: .zero, configuration: configuration)
+            child.customUserAgent = Self.safariUA
+            child.navigationDelegate = self
+            child.uiDelegate = self
+            if #available(iOS 16.4, *) { child.isInspectable = true }
+            self.popupWebView = child
+            return child
         }
-        return nil
+    }
+
+    // The OAuth flow closes its own window when it is done.
+    nonisolated func webViewDidClose(_ webView: WKWebView) {
+        MainActor.assumeIsolated {
+            if webView == self.popupWebView {
+                self.popupWebView = nil
+            }
+        }
     }
 }

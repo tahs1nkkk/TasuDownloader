@@ -8,6 +8,7 @@ struct TasuDownloaderApp: App {
                 .environmentObject(AppSettings.shared)
                 .environmentObject(DownloadRecordStore.shared)
                 .environmentObject(BrowserController.shared)
+                .environmentObject(SiteListStore.shared)
         }
     }
 }

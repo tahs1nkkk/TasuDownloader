@@ -8,11 +8,21 @@ struct WebViewContainer: UIViewRepresentable {
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
 
+/// Hosts an already-built WKWebView — the popup window WebKit asked us to
+/// create in `createWebViewWith`.
+struct PopupWebViewContainer: UIViewRepresentable {
+    let webView: WKWebView
+
+    func makeUIView(context: Context) -> WKWebView { webView }
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
+}
+
 struct BrowserScreen: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var browser: BrowserController
     @ObservedObject private var downloader = Downloader.shared
     @FocusState private var addressFocused: Bool
+    @State private var showAddToList = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -28,8 +38,16 @@ struct BrowserScreen: View {
             } else {
                 overlays
             }
+
+            if let popup = browser.popupWebView {
+                popupLayer(popup)
+            }
         }
         .animation(.easeInOut(duration: 0.22), value: browser.showingHome)
+        .animation(.easeInOut(duration: 0.22), value: browser.popupWebView == nil)
+        .sheet(isPresented: $showAddToList) {
+            AddToListSheet(url: browser.addressText, title: browser.pageTitle)
+        }
     }
 
     // MARK: - Home
@@ -81,16 +99,45 @@ struct BrowserScreen: View {
         .padding(.horizontal, 20)
     }
 
+    // MARK: - Popup (window.open — OAuth logins)
+
+    private func popupLayer(_ popup: WKWebView) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Giriş penceresi")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button("Kapat") { browser.closePopup() }
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.regularMaterial)
+
+            PopupWebViewContainer(webView: popup)
+        }
+        .background(Color(.systemBackground))
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
     // MARK: - Browsing
 
     private var overlays: some View {
         VStack(spacing: 10) {
             Spacer()
             GlassGroup(spacing: 24) {
-                HStack(alignment: .bottom) {
-                    if settings.fabOnLeft { fab } else { searchBubble }
-                    Spacer(minLength: 0)
-                    if settings.fabOnLeft { searchBubble } else { fab }
+                HStack(alignment: .bottom, spacing: 12) {
+                    if settings.fabOnLeft {
+                        fab
+                        addToListButton
+                        Spacer(minLength: 0)
+                        searchBubble
+                    } else {
+                        searchBubble
+                        Spacer(minLength: 0)
+                        addToListButton
+                        fab
+                    }
                 }
                 .padding(.horizontal, 16)
             }
@@ -114,26 +161,60 @@ struct BrowserScreen: View {
         }
     }
 
+    /// Saves the open page into a link list. Hidden during select mode to keep
+    /// the row clean while frames are up.
+    @ViewBuilder private var addToListButton: some View {
+        if !browser.pickerActive {
+            Button {
+                showAddToList = true
+            } label: {
+                Image(systemName: "text.badge.plus")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 42, height: 42)
+                    .liquidGlass(in: Circle(), tint: .indigo, interactive: true)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Bu sayfayı listeye ekle")
+        }
+    }
+
     private var fab: some View {
         let size = settings.fabSize
-        return Image(systemName: "arrow.down.to.line")
+        return Image(systemName: browser.pickerActive ? "checkmark" : "arrow.down.to.line")
             .font(.system(size: size * 0.36, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
-            .liquidGlass(in: Circle(), tint: browser.currentSite?.color ?? .accentColor, interactive: true)
+            .liquidGlass(
+                in: Circle(),
+                tint: browser.pickerActive ? .white.opacity(0.35) : (browser.currentSite?.color ?? .accentColor),
+                interactive: true
+            )
+            .overlay(alignment: .topTrailing) {
+                if browser.pickerActive && browser.pickerCount > 0 {
+                    Text("\(browser.pickerCount)")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(.white))
+                        .offset(x: 6, y: -6)
+                }
+            }
             .contentShape(Circle())
-            // Short tap takes the media in the middle of the screen; holding
-            // marks every candidate on the page and waits for a number.
+            // Short tap: centre media, or — in select mode — download the
+            // selection. Holding enters select mode; holding again cancels it.
             .onTapGesture {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                browser.triggerFabDownload(.centre)
+                browser.fabTapped()
             }
             .onLongPressGesture(minimumDuration: 0.4) {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                browser.triggerFabDownload(.pick)
+                browser.fabLongPressed()
             }
-            .accessibilityLabel("Ekrandaki medyayı indir")
-            .accessibilityHint("Basılı tutarsan sayfadaki tüm medyayı numaralandırır")
+            .accessibilityLabel(browser.pickerActive ? "Seçilenleri indir" : "Ekrandaki medyayı indir")
+            .accessibilityHint("Basılı tutmak seçim modunu açar ve kapatır")
     }
 }
 
@@ -180,8 +261,7 @@ struct DownloadHUDView: View {
 
     @ViewBuilder private var icon: some View {
         switch phase {
-        case .fetching: ProgressView()
-        case .saving: ProgressView()
+        case .fetching, .saving, .uploading: ProgressView()
         case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
         case .idle: EmptyView()
@@ -192,6 +272,7 @@ struct DownloadHUDView: View {
         switch phase {
         case .fetching(let name, _, _, _): return name
         case .saving(let name): return name
+        case .uploading(let name): return name
         case .done(let message): return message
         case .failed(let message): return message
         case .idle: return ""
@@ -214,6 +295,7 @@ struct DownloadHUDView: View {
             }
             return text
         case .saving: return "Fotoğraflara kaydediliyor…"
+        case .uploading: return "Buluta yükleniyor…"
         default: return nil
         }
     }
