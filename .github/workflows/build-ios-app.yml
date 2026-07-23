@@ -14,6 +14,10 @@ on:
 jobs:
   build:
     runs-on: macos-15
+    # The rolling release below needs write access; artifact upload alone
+    # would not.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -56,3 +60,16 @@ jobs:
           name: RipSnip-ipa
           path: dist/RipSnip.ipa
           retention-days: 14
+
+      # Artifacts need a GitHub login to download; a release asset does not.
+      # A rolling "latest" release keeps one stable URL the phone's browser
+      # can fetch directly:
+      #   https://github.com/<owner>/<repo>/releases/download/latest/RipSnip.ipa
+      - name: Publish rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view latest >/dev/null 2>&1 || \
+            gh release create latest --title "RipSnip (latest)" \
+              --notes "Her push'ta güncellenen son derleme."
+          gh release upload latest dist/RipSnip.ipa --clobber
