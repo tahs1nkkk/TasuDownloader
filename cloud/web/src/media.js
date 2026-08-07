@@ -18,7 +18,8 @@
 import { json } from "../functions/api/_utils.js";
 import { readSession } from "./auth.js";
 import {
-  DEFAULT_DRIVE, DEFAULT_SITE, buildKey, extOf, extType, keyFromPath, kindOf, parseKey, safeSlug, thumbKey
+  DEFAULT_DRIVE, DEFAULT_SITE, avatarKey, buildKey, extOf, extType, keyFromPath, kindOf, parseKey,
+  safeAvatarId, safeSlug, thumbKey
 } from "./keys.js";
 import { bytesPerSec, pace, paceUpload } from "./pace.js";
 
@@ -276,9 +277,61 @@ async function handleThumb(request, env, url) {
   return json({ ok: false, error: "yöntem desteklenmiyor" }, 405, { Allow: "GET, PUT" });
 }
 
+/* ------------------------------------------------------------------ avatar */
+
+// Liste öğelerinin profil resmi. Kapaklarla aynı mantık: baytları uygulama
+// (telefon oturumuyla) yakalayıp buraya küçük bir görsel olarak bırakır, her
+// cihaz da buradan gösterir. Fark: bir medyaya bağlı değil, kimliğe bağlı —
+// aynı profil birden çok listede tek blob paylaşır. `.avatar/` öneki listeleme
+// dışında kaldığı için arşiv ızgarasında hiç görünmez.
+async function handleAvatar(request, env, url) {
+  const id = safeAvatarId(url.pathname.slice("/api/avatar/".length));
+  if (!id) return json({ ok: false, error: "geçersiz avatar kimliği" }, 400);
+  const key = avatarKey(id);
+
+  if (request.method === "GET") {
+    const inm = request.headers.get("If-None-Match");
+    if (inm) {
+      const head = await env.MEDIA.head(key);
+      if (head && etagMatches(inm, head.httpEtag)) {
+        return new Response(null, {
+          status: 304,
+          headers: { ETag: head.httpEtag, "Cache-Control": FOREVER }
+        });
+      }
+    }
+    const object = await env.MEDIA.get(key);
+    if (!object) return json({ ok: false, error: "yok" }, 404);
+    return new Response(pace(object.body, bytesPerSec(request, url)), {
+      headers: {
+        "Content-Type": (object.httpMetadata && object.httpMetadata.contentType) || "image/jpeg",
+        "Content-Length": String(object.size),
+        "ETag": object.httpEtag,
+        "Cache-Control": FOREVER
+      }
+    });
+  }
+
+  if (request.method === "PUT") {
+    const length = Number(request.headers.get("Content-Length") || 0);
+    if (length > 300_000) return json({ ok: false, error: "avatar çok büyük" }, 413);
+    const type = request.headers.get("Content-Type") || "";
+    const contentType = /^image\//.test(type) ? type : "image/jpeg";
+    await env.MEDIA.put(key, request.body, { httpMetadata: { contentType } });
+    return json({ ok: true });
+  }
+
+  if (request.method === "DELETE") {
+    await env.MEDIA.delete(key);
+    return json({ ok: true });
+  }
+
+  return json({ ok: false, error: "yöntem desteklenmiyor" }, 405, { Allow: "GET, PUT, DELETE" });
+}
+
 /* ------------------------------------------------------------------ giriş */
 
-// worker.js buraya /api/media*, /api/thumb/* yollarını yönlendirir.
+// worker.js buraya /api/media*, /api/thumb/*, /api/avatar/* yollarını yönlendirir.
 export async function handleMedia(request, env, url) {
   if (!(await authorized(request, url, env))) {
     return json({ ok: false, error: "yetkisiz" }, 401);
@@ -287,6 +340,7 @@ export async function handleMedia(request, env, url) {
   const method = request.method;
 
   if (path.startsWith("/api/thumb/")) return handleThumb(request, env, url);
+  if (path.startsWith("/api/avatar/")) return handleAvatar(request, env, url);
 
   // Koleksiyon: liste.
   if (path === "/api/media") {

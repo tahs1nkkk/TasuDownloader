@@ -1,5 +1,6 @@
 import AVKit
 import SwiftUI
+import UIKit
 
 /// The cloud half of the Galeri tab: what lives in R2, shown the way the web
 /// archive shows it — a square grid grouped by source site, not a file list.
@@ -9,11 +10,14 @@ import SwiftUI
 /// downloaded to the phone; tapping opens a pager that streams over Range
 /// requests, so seeking a two-hour video costs two hundred kilobytes.
 struct CloudGalleryView: View {
+    @EnvironmentObject private var records: DownloadRecordStore
+    @Binding var selecting: Bool
     @State private var files: [CloudFile] = []
     @State private var status: String?
     @State private var loading = false
     @State private var site: String = ""
     @State private var opened: PagerStart?
+    @State private var chosen: Set<String> = []
 
     /// fullScreenCover(item:) wants something Identifiable; the start index
     /// alone is not, and passing the file loses "which list am I paging".
@@ -55,20 +59,79 @@ struct CloudGalleryView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                if loading {
-                    ProgressView()
-                } else {
-                    Button {
-                        Task { await load() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
+                HStack(spacing: 2) {
+                    if !files.isEmpty {
+                        Button(selecting ? "İptal" : "Seç") {
+                            selecting.toggle()
+                            chosen.removeAll()
+                        }
+                    }
+                    if loading {
+                        ProgressView()
+                    } else {
+                        Button {
+                            Task { await load() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
                     }
                 }
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            if selecting { cloudSelectionBar }
+        }
         .task { await load() }
         .fullScreenCover(item: $opened) { start in
             CloudPager(files: shown, start: start.index, onDelete: remove)
+        }
+        // HUD'dan gelen "yalnız buluta yüklendi" atlaması: liste yenilenince öğeyi
+        // pager'da aç. load da sonunda bunu dener (sekmeye yeni geçildiğinde).
+        .onChange(of: records.revealTarget) { _, target in
+            if case .cloud(_)? = target { Task { await load() } }
+        }
+    }
+
+    /// HUD'dan işaretlenen bulut anahtarını tam ekran açar ve hedefi temizler.
+    /// Öğe hangi site sekmesindeyse görünür olsun diye önce süzgeci "Tümü"ye alır.
+    private func attemptReveal() {
+        guard case .cloud(let key)? = records.revealTarget else { return }
+        site = ""
+        guard let idx = files.firstIndex(where: { $0.key == key }) else { return }
+        opened = PagerStart(index: idx)
+        records.revealTarget = nil
+    }
+
+    /// Bulut seçim çubuğu: cihaz galerisiyle aynı dil. Seçilenleri buluttan
+    /// siler, ardından seçim kapanır ve kaynak değiştirici tekrar açılır.
+    private var cloudSelectionBar: some View {
+        HStack(spacing: 10) {
+            Text("\(chosen.count) seçili")
+                .font(.system(size: 13, weight: .semibold))
+            Spacer()
+            Button(role: .destructive) {
+                deleteChosen()
+            } label: {
+                Label("Buluttan sil", systemImage: "trash")
+            }
+            .disabled(chosen.isEmpty)
+        }
+        .font(.system(size: 13, weight: .semibold))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .liquidGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 4)
+    }
+
+    private func deleteChosen() {
+        let doomed = files.filter { chosen.contains($0.id) }
+        files.removeAll { chosen.contains($0.id) }
+        selecting = false
+        chosen.removeAll()
+        guard let cloud = CloudClient.fromSettings() else { return }
+        Task {
+            for file in doomed { try? await cloud.delete(key: file.key) }
         }
     }
 
@@ -112,20 +175,47 @@ struct CloudGalleryView: View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 3)], spacing: 3) {
                 ForEach(Array(shown.enumerated()), id: \.element.id) { index, file in
+                    let isChosen = chosen.contains(file.id)
                     CloudTile(file: file)
-                        .onTapGesture { opened = PagerStart(index: index) }
+                        .overlay {
+                            if selecting && isChosen { Color.black.opacity(0.35) }
+                        }
+                        .overlay(alignment: .bottomTrailing) {
+                            if selecting && isChosen {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(.white, Color.accentColor)
+                                    .shadow(radius: 3)
+                                    .padding(6)
+                            }
+                        }
+                        .onTapGesture {
+                            if selecting {
+                                if isChosen { chosen.remove(file.id) } else { chosen.insert(file.id) }
+                            } else {
+                                opened = PagerStart(index: index)
+                            }
+                        }
                         .contextMenu {
-                            Button(role: .destructive) {
-                                remove(file)
-                            } label: {
-                                Label("Buluttan sil", systemImage: "trash")
+                            if !selecting {
+                                Button(role: .destructive) {
+                                    remove(file)
+                                } label: {
+                                    Label("Buluttan sil", systemImage: "trash")
+                                }
                             }
                         }
                 }
             }
             .padding(3)
         }
-        .refreshable { await load() }
+        .refreshable {
+            // SwiftUI, çekme jesti biter bitmez refresh Task'ını iptal ediyor;
+            // URLSession bunu -999 (cancelled) olarak fırlatınca "Buluta
+            // ulaşılamadı" hatası çıkıyordu. Yüklemeyi bağımsız bir Task'a
+            // alınca ağ isteği jestin ömründen etkilenmeden tamamlanır.
+            await Task { await load() }.value
+        }
     }
 
     private func load() async {
@@ -139,6 +229,7 @@ struct CloudGalleryView: View {
             files = try await cloud.list()
             if !site.isEmpty && !files.contains(where: { $0.site == site }) { site = "" }
             status = nil
+            attemptReveal()
         } catch {
             status = error.localizedDescription
         }
@@ -184,10 +275,16 @@ private struct CloudTile: View {
                 case .success(let image):
                     image.resizable().scaledToFill()
                 case .failure:
-                    // Kapağı henüz üretilmemiş video ya da açılamayan görsel.
-                    Image(systemName: file.isVideo ? "film" : "photo")
-                        .font(.system(size: 22))
-                        .foregroundStyle(.secondary)
+                    if file.isVideo {
+                        // Sunucuda kapak yok: ilk kareyi yerelde üret, çiz ve
+                        // /api/thumb'a bırak — sonrası (ve web) hazır kapağı alır.
+                        CloudVideoPoster(file: file)
+                    } else {
+                        // Açılamayan görsel.
+                        Image(systemName: "photo")
+                            .font(.system(size: 22))
+                            .foregroundStyle(.secondary)
+                    }
                 default:
                     ProgressView().controlSize(.small)
                 }
@@ -279,7 +376,8 @@ private struct CloudPage: View {
     let active: Bool
 
     @State private var player: AVPlayer?
-    @State private var zoom: CGFloat = 1
+    @State private var image: UIImage?
+    @State private var failed = false
 
     var body: some View {
         Group {
@@ -289,34 +387,27 @@ private struct CloudPage: View {
                 } else {
                     ProgressView().tint(.white)
                 }
-            } else if let cloud = CloudClient.fromSettings() {
-                AsyncImage(url: cloud.streamURL(key: file.key)) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFit()
-                            .scaleEffect(zoom)
-                            // Çift dokunuş yakınlaştırır: tek parmakla yatay
-                            // kaydırma sayfa geçişine ayrıldığı için pinch yerine
-                            // bu daha az çakışıyor.
-                            .onTapGesture(count: 2) {
-                                withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-                                    zoom = zoom > 1 ? 1 : 2.5
-                                }
-                            }
-                    case .failure:
-                        Image(systemName: "exclamationmark.triangle").foregroundStyle(.white)
-                    default:
-                        ProgressView().tint(.white)
-                    }
-                }
+            } else if let image {
+                // UIScrollView tabanlı yakınlaştırma: iki parmak pinch, çift
+                // dokunuşla noktaya zoom ve yakınken tek parmakla gezinme. Zoom
+                // 1'ken içteki kaydırıcı yatay sürüklemeyi tüketmediği için sayfa
+                // geçişi çalışır; yakınlaşınca sürüklemeyi kendi aldığından sayfa
+                // kaymaz (eski scaleEffect'te sürükleme hep sayfayı değiştirip
+                // medyayı ekran dışına atıyordu).
+                ZoomableImage(image: image)
+            } else if failed {
+                Image(systemName: "exclamationmark.triangle").foregroundStyle(.white)
+            } else {
+                ProgressView().tint(.white)
             }
         }
         .onChange(of: active) { _, isActive in
             if isActive { startIfNeeded() } else { stop() }
         }
-        .onAppear { if active { startIfNeeded() } }
+        .onAppear {
+            if active { startIfNeeded() }
+            loadImageIfNeeded()
+        }
         .onDisappear { stop() }
     }
 
@@ -330,9 +421,122 @@ private struct CloudPage: View {
         created.play()
     }
 
+    /// Zoomable görsel bir UIImage ister; AsyncImage yerine akışı doğrudan
+    /// indiriyoruz (token ve bant sınırı zaten streamURL sorgusunda).
+    private func loadImageIfNeeded() {
+        guard !file.isVideo, image == nil, !failed,
+              let cloud = CloudClient.fromSettings() else { return }
+        Task {
+            do {
+                let (data, response) = try await URLSession.shared.data(from: cloud.streamURL(key: file.key))
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 200
+                if (200...299).contains(code), let ui = UIImage(data: data) {
+                    await MainActor.run { image = ui }
+                } else {
+                    await MainActor.run { failed = true }
+                }
+            } catch {
+                await MainActor.run { failed = true }
+            }
+        }
+    }
+
     private func stop() {
         player?.pause()
         player = nil
-        zoom = 1
+    }
+}
+
+// MARK: - Yakınlaştırılabilir görsel
+
+/// SwiftUI'nin `scaleEffect`'i ne iki-parmak pinch ne de yakınken gezinme
+/// veriyor, üstüne TabView'ın sayfa kaydırmasıyla çakışıyordu. UIScrollView
+/// pinch / çift-dokunuş / pan'ı yerli olarak yapar; yakınken yatay sürüklemeyi
+/// kendisi tükettiği için dıştaki sayfa gezgini araya girmez, zoom 1'ken ise
+/// içerik ekrana sığdığından sürüklemeyi bırakıp sayfa geçişine izin verir.
+struct ZoomableImage: UIViewRepresentable {
+    let image: UIImage
+
+    func makeUIView(context: Context) -> ZoomScrollView {
+        let scroll = ZoomScrollView()
+        scroll.imageView.image = image
+        let doubleTap = UITapGestureRecognizer(target: scroll,
+                                               action: #selector(ZoomScrollView.handleDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        scroll.addGestureRecognizer(doubleTap)
+        return scroll
+    }
+
+    func updateUIView(_ scroll: ZoomScrollView, context: Context) {
+        if scroll.imageView.image !== image {
+            scroll.imageView.image = image
+            scroll.resetZoom()
+        }
+    }
+}
+
+/// Kendi delegesi olan sade yakınlaştırma kaydırıcısı.
+final class ZoomScrollView: UIScrollView, UIScrollViewDelegate {
+    let imageView = UIImageView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        delegate = self
+        minimumZoomScale = 1
+        maximumZoomScale = 4
+        bouncesZoom = true
+        // Zoom 1'ken içerik tam ekrana sığdığından sürüklemeyi tüketmesin ki
+        // dıştaki TabView sayfa geçişini alabilsin.
+        bounces = false
+        showsVerticalScrollIndicator = false
+        showsHorizontalScrollIndicator = false
+        backgroundColor = .clear
+        contentInsetAdjustmentBehavior = .never
+        imageView.contentMode = .scaleAspectFit
+        imageView.isUserInteractionEnabled = true
+        addSubview(imageView)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) kullanılmıyor") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Yakın değilken görseli ekrana sığdır; yakınken kaydırıcı kendi
+        // düzenini korur, biz yalnız ortalarız.
+        if zoomScale == minimumZoomScale {
+            imageView.frame = CGRect(origin: .zero, size: bounds.size)
+            contentSize = bounds.size
+        }
+        centerImage()
+    }
+
+    private func centerImage() {
+        var frame = imageView.frame
+        frame.origin.x = frame.width < bounds.width ? (bounds.width - frame.width) / 2 : 0
+        frame.origin.y = frame.height < bounds.height ? (bounds.height - frame.height) / 2 : 0
+        imageView.frame = frame
+    }
+
+    func resetZoom() {
+        setZoomScale(minimumZoomScale, animated: false)
+        setNeedsLayout()
+    }
+
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
+
+    func scrollViewDidZoom(_ scrollView: UIScrollView) { centerImage() }
+
+    @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+        if zoomScale > minimumZoomScale {
+            setZoomScale(minimumZoomScale, animated: true)
+        } else {
+            let point = gesture.location(in: imageView)
+            let scale: CGFloat = 2.5
+            let width = bounds.size.width / scale
+            let height = bounds.size.height / scale
+            let rect = CGRect(x: point.x - width / 2, y: point.y - height / 2,
+                              width: width, height: height)
+            zoom(to: rect, animated: true)
+        }
     }
 }

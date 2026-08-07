@@ -328,6 +328,41 @@
     };
   };
 
+  // KÖK-LİSTE-AVATAR: the "+" also grabs the profile picture of the page you are
+  // on, so a saved profile shows a real face instead of a coloured dot. The app
+  // uploads it once, keeps it hidden from the archive, and shares it across
+  // lists. Conservative on purpose: only when we are sure it is the *avatar*, not
+  // a post image. A content script that knows its site's header markup can expose
+  // window.__rgSiteAvatar (a URL string or a function returning one); otherwise
+  // an Instagram *profile* page's own header image is the honest guess. Anything
+  // else returns "" and the app falls back to its own resolvers (Reddit, Coomer).
+  window.__rgProfileAvatar = () => {
+    try {
+      const own = window.__rgSiteAvatar;
+      const fromSite = typeof own === "function" ? own() : (typeof own === "string" ? own : "");
+      if (fromSite) return absoluteURL(fromSite);
+      return instagramProfileAvatar();
+    } catch { return ""; }
+  };
+
+  function absoluteURL(value) {
+    try { return new URL(String(value || ""), location.href).href; } catch { return ""; }
+  }
+
+  // Only on a bare profile page ("/<kullanıcı>"): a post ("/<kullanıcı>/p/…" or
+  // "/p/…") would hand back the post's picture, not the person's. The live header
+  // image beats og:image, which a single-page navigation can leave stale.
+  function instagramProfileAvatar() {
+    if (!/(^|\.)instagram\.com$/.test(location.hostname)) return "";
+    const parts = location.pathname.split("/").filter(Boolean);
+    const reserved = ["p", "tv", "reel", "reels", "stories", "explore", "direct", "accounts", "s"];
+    if (parts.length !== 1 || reserved.includes(parts[0])) return "";
+    const header = document.querySelector("header img");
+    if (header && header.src) return header.src;
+    const og = document.querySelector('meta[property="og:image"], meta[name="og:image"]');
+    return absoluteURL(og && og.getAttribute("content"));
+  }
+
   // Feeds scroll vertically, so "the one I am looking at" is the one nearest the
   // middle of the screen height; horizontal distance only breaks ties in grids.
   function centreMost(list) {

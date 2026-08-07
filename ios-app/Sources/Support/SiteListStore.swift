@@ -5,6 +5,11 @@ struct LinkItem: Codable, Identifiable, Equatable {
     var url: String
     var title: String
     var addedAt = Date()
+    /// Profil/kullanıcı bağlantılarında `<site>~<kullanıcı>` biçiminde sabit
+    /// kimlik: satırda avatarı bulutta bu anahtarla arar (`.avatar/…`). Post gibi
+    /// sahibi belirsiz bağlantılarda ve eski kayıtlarda nil — o zaman renkli nokta
+    /// gösterilir. Senkronla olduğu gibi taşınır (web JSON'una zararsız eklenir).
+    var avatarKey: String?
 
     var host: String {
         URL(string: url)?.host?.replacingOccurrences(of: "www.", with: "") ?? url
@@ -71,9 +76,11 @@ final class SiteListStore: ObservableObject {
     }
 
     func deleteList(_ id: UUID) {
+        let removed = lists.first { $0.id == id }?.items ?? []
         lists.removeAll { $0.id == id }
         tombstones.append(Tombstone(id: id, deletedAt: Date()))
         saveAndSync()
+        cleanupAvatars(for: removed)
     }
 
     func add(url: String, title: String, to listId: UUID) {
@@ -83,9 +90,12 @@ final class SiteListStore: ObservableObject {
             var item = lists[index].items.remove(at: existing)
             item.title = title
             item.addedAt = Date()
+            if item.avatarKey == nil { item.avatarKey = AvatarIdentity.key(forURL: item.url) }
             lists[index].items.insert(item, at: 0)
         } else {
-            lists[index].items.insert(LinkItem(url: url, title: title), at: 0)
+            var item = LinkItem(url: url, title: title)
+            item.avatarKey = AvatarIdentity.key(forURL: url)
+            lists[index].items.insert(item, at: 0)
         }
         lists[index].updatedAt = Date()
         saveAndSync()
@@ -93,9 +103,22 @@ final class SiteListStore: ObservableObject {
 
     func removeItems(at offsets: IndexSet, from listId: UUID) {
         guard let index = lists.firstIndex(where: { $0.id == listId }) else { return }
+        let removed = offsets.map { lists[index].items[$0] }
         lists[index].items.remove(atOffsets: offsets)
         lists[index].updatedAt = Date()
         saveAndSync()
+        cleanupAvatars(for: removed)
+    }
+
+    /// Silinen öğelerin avatarını buluttan kaldırır — ama aynı profil başka bir
+    /// listede hâlâ duruyorsa (avatar kimliği paylaşımlı) blob'a dokunmaz.
+    private func cleanupAvatars(for removed: [LinkItem]) {
+        let removedKeys = Set(removed.compactMap { $0.avatarKey })
+        guard !removedKeys.isEmpty else { return }
+        let stillUsed = Set(lists.flatMap { $0.items }.compactMap { $0.avatarKey })
+        let orphans = removedKeys.subtracting(stillUsed)
+        guard !orphans.isEmpty else { return }
+        Task { await AvatarStore.shared.remove(orphans) }
     }
 
     // MARK: - Persistence

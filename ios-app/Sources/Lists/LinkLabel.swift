@@ -122,3 +122,62 @@ enum LinkSite {
         String(name(key).prefix(1)).uppercased()
     }
 }
+
+/// Bir profil/kullanıcı bağlantısının bulut avatar kimliği: `<site>~<kullanıcı>`.
+///
+/// Sabit ve küçük harf — aynı profil (ör. `instagram~kedi`) birden çok listede
+/// tek blob paylaşsın diye. Yalnız adreste sahibi belli olan bağlantılara kimlik
+/// üretir; çıplak bir gönderiye (ör. redgifs.com/watch/xyz) nil döner, o satır
+/// renkli noktada kalır. Karakter kümesi Worker'ın `safeAvatarId`'siyle aynı:
+/// `[A-Za-z0-9._~-]`.
+enum AvatarIdentity {
+    static func key(forURL raw: String) -> String? {
+        guard let parsed = URL(string: raw), let rawHost = parsed.host?.lowercased() else { return nil }
+        let host = rawHost.replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression)
+        let parts = parsed.path.split(separator: "/").map { $0.removingPercentEncoding ?? String($0) }
+        let a = parts.count > 0 ? parts[0] : ""
+        let b = parts.count > 1 ? parts[1] : ""
+        let c = parts.count > 2 ? parts[2] : ""
+
+        let site: String
+        var user: String
+
+        if host.hasSuffix("instagram.com") {
+            site = "instagram"
+            let reserved = ["p", "tv", "reel", "reels", "stories", "explore", "direct", "accounts", "s"]
+            if a == "stories" { user = b }
+            else if a.isEmpty || reserved.contains(a) { user = "" }
+            else { user = a }                                  // instagram.com/<kullanıcı>[/…]
+        } else if host.hasSuffix("reddit.com") || host.hasSuffix("redd.it") {
+            site = "reddit"
+            if a == "user" || a == "u" { user = b }
+            else if a == "r", !b.isEmpty { user = "r-\(b)" }   // topluluk ikonu
+            else { user = "" }
+        } else if host.hasSuffix("redgifs.com") {
+            site = "redgifs"
+            user = a == "users" ? b : ""
+        } else if host.hasSuffix("scrolller.com") {
+            site = "scrolller"
+            if a == "u" { user = b }
+            else if a == "r", !b.isEmpty { user = "r-\(b)" }
+            else { user = "" }
+        } else if host.contains("coomer.") || host.contains("kemono.") {
+            site = host.contains("kemono.") ? "kemono" : "coomer"
+            user = b == "user" ? c : ""                        // /<servis>/user/<kullanıcı>
+        } else {
+            return nil
+        }
+
+        let cleanUser = sanitize(user)
+        guard !cleanUser.isEmpty else { return nil }
+        return sanitize("\(site)~\(cleanUser)").lowercased()
+    }
+
+    /// Worker'ın kabul ettiği kümeye indirger; önündeki noktaları da atar ki
+    /// `.avatar/` önekiyle karışmasın.
+    private static func sanitize(_ raw: String) -> String {
+        let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._~-")
+        let filtered = String(raw.unicodeScalars.filter { allowed.contains(Character($0)) })
+        return String(filtered.drop { $0 == "." })
+    }
+}

@@ -10,16 +10,24 @@ import WebKit
 /// Worker oturum çerezini basıp doğrudan sayfaya yönlendirir.
 struct ArchiveScreen: View {
     @StateObject private var model = ArchiveWebModel()
+    // Ayarlar bir singleton ama burada gözlemlenmeli: kullanıcı Worker adresi ile
+    // anahtarı Ayarlar'da girip arşive dönünce ekran kendiliğinden yenilensin,
+    // yoksa "bulut ayarlanmamış" ekranı takılı kalıyordu.
+    @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var browser: BrowserController
 
     var body: some View {
         NavigationStack {
             Group {
-                if CloudClient.fromSettings() == nil {
-                    ContentUnavailableView(
-                        "Bulut ayarlanmamış",
-                        systemImage: "icloud.slash",
-                        description: Text("Ayarlar → Bulut ve Eşitleme altında Worker adresi ile paylaşılan anahtarı gir; arşiv burada açılır.")
-                    )
+                if !settings.cloudConfigured {
+                    ContentUnavailableView {
+                        Label("Bulut ayarlanmamış", systemImage: "icloud.slash")
+                    } description: {
+                        Text("Arşivi burada açmak için Worker adresi ile paylaşılan anahtarı gir.")
+                    } actions: {
+                        Button("Ayarlara git") { browser.wantsSettingsTab = true }
+                            .buttonStyle(.borderedProminent)
+                    }
                 } else {
                     ZStack(alignment: .bottom) {
                         ArchiveWebView(model: model)

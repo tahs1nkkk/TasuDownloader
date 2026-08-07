@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var browser: BrowserController
+    @EnvironmentObject private var records: DownloadRecordStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var tab: Tab = .browser
 
@@ -37,6 +38,19 @@ struct RootView: View {
                 tab = .browser
                 browser.wantsBrowserTab = false
             }
+        }
+        // Arşiv boş durumundaki "Ayarlara git": Ayarlar sekmesine geç.
+        .onChange(of: browser.wantsSettingsTab) { _, wants in
+            if wants {
+                tab = .settings
+                browser.wantsSettingsTab = false
+            }
+        }
+        // İndirme HUD'una dokunuldu: dosyanın indiği galeriye geç. Hangi alt-galeri
+        // (cihaz/bulut) ve hangi öğe olduğunu GalleryScreen çözer, değeri de o
+        // temizler.
+        .onChange(of: records.revealTarget) { _, target in
+            if target != nil { tab = .gallery }
         }
         // Coming back to the foreground is the natural moment to pull what the
         // PC side may have edited overnight.

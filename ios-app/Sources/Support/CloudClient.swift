@@ -144,6 +144,40 @@ struct CloudClient {
         try check(response)
     }
 
+    /// Client-generated video poster upload, mirroring the web archive: the
+    /// Worker has no ffmpeg, so whoever views a video first captures a frame and
+    /// PUTs it to `.thumb/…` in R2. "En iyi çaba" — hata yutulur, kullanıcı yine
+    /// yerel kareyi görür; başarılıysa web ve sonraki açılışlar da kapağı alır.
+    /// Sunucu 400 KB üstünü reddettiği için küçük bir JPEG beklenir.
+    func uploadThumb(key: String, jpeg: Data) async {
+        var request = request("api/thumb/\(Self.encode(key: key))", method: "PUT")
+        request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+        _ = try? await URLSession.shared.upload(for: request, from: jpeg)
+    }
+
+    /// Liste öğesinin profil resmi. Kimlik `<site>~<kullanıcı>` tek segmenttir;
+    /// blob R2'de `.avatar/…` altında durur ve arşiv ızgarasına düşmez. GET için
+    /// jeton sorguyla gider (AsyncImage başlık gönderemez).
+    func avatarURL(id: String) -> URL {
+        var components = URLComponents(url: base.appendingPathComponent("api/avatar/\(Self.encode(key: id))"),
+                                       resolvingAgainstBaseURL: false)!
+        components.percentEncodedQuery = mediaQuery()
+        return components.url!
+    }
+
+    /// Avatar blob'unu buluta bırakır. "En iyi çaba": başarısız olsa da satır
+    /// yerel karesini gösterir. Sunucu 300 KB üstünü reddeder — küçük JPEG beklenir.
+    func uploadAvatar(id: String, jpeg: Data) async {
+        var request = request("api/avatar/\(Self.encode(key: id))", method: "PUT")
+        request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+        _ = try? await URLSession.shared.upload(for: request, from: jpeg)
+    }
+
+    /// Profil bir listede kalmayınca çağrılır. En iyi çaba.
+    func deleteAvatar(id: String) async {
+        _ = try? await URLSession.shared.data(for: request("api/avatar/\(Self.encode(key: id))", method: "DELETE"))
+    }
+
     /// AVPlayer and AsyncImage cannot send an Authorization header, so streaming
     /// carries the token as a query parameter — the server accepts both forms.
     func streamURL(key: String) -> URL {

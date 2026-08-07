@@ -35,7 +35,19 @@ struct SettingsScreen: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
+                        // Bir URL alanı; parola yöneticisine "kullanıcı adı" gibi
+                        // görünmesin ki alttaki anahtarla eşleşip "giriş kaydet"
+                        // önerisi çıkmasın.
+                        .textContentType(.URL)
                     SecureField("Gizli anahtar", text: $settings.sharedToken)
+                        // iOS bunu parola alanı sayınca her açılışta "Güçlü Parola /
+                        // Kaydet" balonu çıkıyordu. .oneTimeCode ile alan bir giriş
+                        // formunun parçası sayılmaz; QuickType parola önerisi ve
+                        // kaydetme istemi kapanır (ortada gerçek bir OTP olmadığı
+                        // için OTP önerisi de belirmez).
+                        .textContentType(.oneTimeCode)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
                     if settings.cloudConfigured {
                         Picker("İndirilenler nereye", selection: $settings.downloadDestination) {
                             ForEach(DownloadDestination.allCases) { destination in

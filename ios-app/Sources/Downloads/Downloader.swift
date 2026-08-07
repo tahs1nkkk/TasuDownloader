@@ -18,6 +18,13 @@ final class Downloader: NSObject, ObservableObject {
     }
 
     @Published var phase: Phase = .idle
+
+    /// Biten indirmenin galeride nereye düştüğü — HUD'un "tamamlandı" fişine
+    /// dokununca oraya atlamak için. Her `fetchAndSave` başında `nil`'lenir, yalnız
+    /// bir hedefe gerçekten yazıldığında dolar. Cihaza inen kazanır (yerel, anında
+    /// açılır); yalnız buluta gidenler bulut anahtarını taşır.
+    @Published private(set) var savedReveal: DownloadRecordStore.RevealTarget?
+
     private var dismissTask: Task<Void, Never>?
 
     /// The transfer currently on the wire, so a long-press on the HUD (or the
@@ -156,7 +163,8 @@ final class Downloader: NSObject, ObservableObject {
             }
             if saved > 0 {
                 phase = .done("\(saved) dosya kaydedildi")
-                scheduleDismiss(after: 2.0)
+                // Galeriye atlanabiliyorsa fiş daha uzun kalsın: dokunmaya vakit olsun.
+                scheduleDismiss(after: savedReveal != nil ? 6 : 2.0)
                 return ["ok": true, "mode": "queued", "count": saved]
             }
             if cancelRequested {
@@ -213,6 +221,8 @@ final class Downloader: NSObject, ObservableObject {
     ) async throws {
         guard let url = URL(string: urlString) else { throw DownloadError.badURL }
         let filename = MediaNaming.fileName(for: namingUrl, site: site)
+        // Bu aday için geçmiş bir başarının hedefi taşınmasın: her denemede sıfırla.
+        savedReveal = nil
         phase = .fetching(name: filename, received: 0, total: 0, startedAt: Date())
 
         var request = URLRequest(url: url)
@@ -306,8 +316,14 @@ final class Downloader: NSObject, ObservableObject {
             do {
                 // Site etiketi buradan gider: arşivde dosya doğru sekmenin altına
                 // düşsün diye. Kaynağı bilinmiyorsa sunucu "Other" kullanır.
-                try await cloud.upload(fileURL: named, preferredName: finalName, site: site)
+                let key = try await cloud.upload(fileURL: named, preferredName: finalName, site: site)
                 wrote.append("Bulut")
+                // Yalnız buluta gidiyorsa (cihazda kopya yok) HUD dokunuşu bulut
+                // galerisini açsın; hem cihaz hem bulut ise aşağıdaki cihaz kaydı
+                // bu değeri ezer, çünkü yerel öğe anında açılır.
+                if destination == .cloud {
+                    savedReveal = .cloud(key: key)
+                }
             } catch {
                 problems.append("bulut: \(error.localizedDescription)")
             }
@@ -317,7 +333,8 @@ final class Downloader: NSObject, ObservableObject {
             phase = .saving(name: finalName)
             do {
                 let assetId = try await PhotoSaver.save(fileURL: named, filename: finalName, isVideo: isVideo)
-                records.add(assetId: assetId, filename: finalName, site: site, sourceURL: sourceUrl, isVideo: isVideo)
+                let recordId = records.add(assetId: assetId, filename: finalName, site: site, sourceURL: sourceUrl, isVideo: isVideo)
+                savedReveal = .device(recordId)
                 wrote.append("Fotoğraflar")
             } catch {
                 problems.append("Fotoğraflar: \(error.localizedDescription)")
@@ -330,7 +347,8 @@ final class Downloader: NSObject, ObservableObject {
         var summary = "Kaydedildi: \(wrote.joined(separator: " + "))"
         if !problems.isEmpty { summary += " (⚠ \(problems.joined(separator: ", ")))" }
         phase = .done(summary)
-        scheduleDismiss(after: 1.8)
+        // Galeriye atlanabiliyorsa fiş daha uzun kalsın: dokunmaya vakit olsun.
+        scheduleDismiss(after: savedReveal != nil ? 6 : 1.8)
     }
 }
 

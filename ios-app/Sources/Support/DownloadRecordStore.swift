@@ -19,6 +19,17 @@ final class DownloadRecordStore: ObservableObject {
 
     @Published private(set) var records: [DownloadRecord] = []
 
+    /// İndirme HUD'una dokununca dosyanın indiği yere gitmek için: cihaza inen bir
+    /// medya `.device(kayıt id)`, yalnız buluta yükleneni `.cloud(anahtar)`. RootView
+    /// bunu görünce Galeri sekmesine geçer, ilgili alt-galeri de öğeyi açıp değeri
+    /// `nil`'e çeker (aynı öğe iki kez açılmasın diye).
+    enum RevealTarget: Equatable {
+        case device(UUID)
+        case cloud(key: String)
+    }
+
+    @Published var revealTarget: RevealTarget?
+
     private var fileURL: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return dir.appendingPathComponent("download-records.json")
@@ -28,13 +39,17 @@ final class DownloadRecordStore: ObservableObject {
         load()
     }
 
-    func add(assetId: String, filename: String, site: String, sourceURL: String, isVideo: Bool) {
+    /// Yeni kaydın id'sini döndürür ki indirici HUD'un "tamamlandı" fişini bu öğeye
+    /// bağlayabilsin (dokununca galeride onu açar).
+    @discardableResult
+    func add(assetId: String, filename: String, site: String, sourceURL: String, isVideo: Bool) -> UUID {
         let record = DownloadRecord(
             id: UUID(), assetId: assetId, filename: filename, site: site,
             sourceURL: sourceURL, savedAt: Date(), isVideo: isVideo
         )
         records.insert(record, at: 0)
         save()
+        return record.id
     }
 
     func remove(_ record: DownloadRecord) {

@@ -20,6 +20,7 @@ struct PopupWebViewContainer: UIViewRepresentable {
 struct BrowserScreen: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var browser: BrowserController
+    @EnvironmentObject private var records: DownloadRecordStore
     @ObservedObject private var downloader = Downloader.shared
     @FocusState private var addressFocused: Bool
     @State private var pendingLink: PendingLink?
@@ -33,6 +34,10 @@ struct BrowserScreen: View {
         let id = UUID()
         let url: String
         let title: String
+        /// Sayfadan o an yakalanan profil resmi adresi (Instagram profili gibi
+        /// yerlerde). Ekleme onaylanınca bu ipucuyla avatar gizlice yüklenir;
+        /// yoksa uygulama kendi çözücüleriyle (Reddit/Coomer) dener.
+        let avatar: String?
     }
 
     var body: some View {
@@ -57,7 +62,7 @@ struct BrowserScreen: View {
         .animation(.easeInOut(duration: 0.22), value: browser.showingHome)
         .animation(.easeInOut(duration: 0.22), value: browser.popupWebView == nil)
         .sheet(item: $pendingLink) { link in
-            AddToListSheet(url: link.url, title: link.title)
+            AddToListSheet(url: link.url, title: link.title, avatarHint: link.avatar)
         }
     }
 
@@ -151,9 +156,16 @@ struct BrowserScreen: View {
                 }
                 .padding(.horizontal, 16)
                 if downloader.phase != .idle {
-                    DownloadHUDView(phase: downloader.phase) {
-                        downloader.cancelCurrent()
-                    }
+                    DownloadHUDView(
+                        phase: downloader.phase,
+                        canReveal: downloader.savedReveal != nil,
+                        onReveal: {
+                            guard let target = downloader.savedReveal else { return }
+                            records.revealTarget = target
+                            downloader.phase = .idle
+                        },
+                        onCancel: { downloader.cancelCurrent() }
+                    )
                     .padding(.horizontal, 12)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -238,7 +250,7 @@ struct BrowserScreen: View {
             Button {
                 Task {
                     let link = await browser.focusedLink()
-                    pendingLink = PendingLink(url: link.url, title: link.title)
+                    pendingLink = PendingLink(url: link.url, title: link.title, avatar: link.avatar)
                 }
             } label: {
                 Image(systemName: "text.badge.plus")
@@ -317,6 +329,11 @@ struct HomeBackground: View {
 
 struct DownloadHUDView: View {
     let phase: Downloader.Phase
+    /// True when the finished item has a place in the gallery to jump to; the
+    /// "done" receipt then becomes tappable.
+    var canReveal: Bool = false
+    /// Tapping the "done" receipt lands here — RootView switches to the gallery.
+    var onReveal: (() -> Void)? = nil
     /// KÖK-İNDİRME-İPTAL: long-pressing the toast aborts the transfer. Optional
     /// so previews and any other caller can drop the HUD in without a handler.
     var onCancel: (() -> Void)? = nil
@@ -330,6 +347,12 @@ struct DownloadHUDView: View {
         }
     }
 
+    /// The finished receipt can be tapped to open the item where it landed.
+    private var revealable: Bool {
+        if case .done = phase { return canReveal }
+        return false
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             icon
@@ -340,6 +363,10 @@ struct DownloadHUDView: View {
                     Text("Basılı tutup iptal et")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.tertiary)
+                } else if revealable {
+                    Text("Galeride göster")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.tint)
                 }
             }
             Spacer(minLength: 0)
@@ -347,18 +374,29 @@ struct DownloadHUDView: View {
                 Image(systemName: "xmark.circle")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.secondary)
+            } else if revealable {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .liquidGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .onTapGesture {
+            guard revealable else { return }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onReveal?()
+        }
         .onLongPressGesture(minimumDuration: 0.45) {
             guard cancellable else { return }
             UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
             onCancel?()
         }
-        .accessibilityHint(cancellable ? "Basılı tutmak indirmeyi iptal eder" : "")
+        .accessibilityHint(cancellable
+            ? "Basılı tutmak indirmeyi iptal eder"
+            : (revealable ? "Dokunmak öğeyi galeride açar" : ""))
     }
 
     @ViewBuilder private var icon: some View {

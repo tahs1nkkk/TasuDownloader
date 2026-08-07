@@ -180,7 +180,7 @@ struct ListDetailScreen: View {
                                     browser.openURL(item.url)
                                 } label: {
                                     HStack(spacing: 12) {
-                                        siteDot(for: item)
+                                        ItemAvatar(item: item)
                                         VStack(alignment: .leading, spacing: 2) {
                                             // Ad adresten geliyor: profilse kullanıcı adı,
                                             // gönderiyse "kullanıcı | tür". Eklentinin
@@ -241,16 +241,48 @@ struct ListDetailScreen: View {
         }
     }
 
-    private func siteDot(for item: LinkItem) -> some View {
+}
+
+/// Öğe satırının solundaki yuvarlak: profil resmi varsa onu, yoksa kaynağın
+/// renkli noktasını (baş harfiyle) gösterir. Resim buluttan (ya da ilk kez
+/// kaynağından) `AvatarStore` üzerinden gelir; geldiğinde satır kendini yeniler.
+private struct ItemAvatar: View {
+    let item: LinkItem
+    @ObservedObject private var avatars = AvatarStore.shared
+
+    private var image: UIImage? {
+        // Kimliği adresten türet — `AvatarStore` de böyle anahtarlıyor. Öğedeki
+        // `avatarKey` yalnız temizlik/eşitleme için; bu alan boş olan eski
+        // kayıtlar da (kimlik adresten çıkıyorsa) resmini göstersin.
+        guard let key = AvatarIdentity.key(forURL: item.url) else { return nil }
+        return avatars.image(for: key)
+    }
+
+    var body: some View {
         let key = LinkSite.key(for: item)
-        return Circle()
-            .fill(LinkSite.color(key).gradient)
-            .frame(width: 30, height: 30)
-            .overlay(
-                Text(LinkSite.initial(key))
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-            )
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Circle()
+                    .fill(LinkSite.color(key).gradient)
+                    .overlay(
+                        Text(LinkSite.initial(key))
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                    )
+            }
+        }
+        .frame(width: 30, height: 30)
+        .clipShape(Circle())
+        .onAppear {
+            // Görünürken bulutta ara; yoksa oturum istemeyen sitelerde (Reddit,
+            // Coomer) kaynağından çöz. Instagram gibi olanlar ancak ekleme anında
+            // yakalanan ipucuyla dolar — burada sessizce noktada kalır.
+            AvatarStore.shared.ensure(url: item.url, allowResolve: true)
+        }
     }
 }
 
@@ -300,9 +332,18 @@ private struct SiteFilterBar: View {
 struct AddToListSheet: View {
     let url: String
     let title: String
+    /// Tarayıcının o an yakaladığı profil resmi adresi (varsa). Eklerken bununla
+    /// avatar gizlice buluta yüklenir; nil ise uygulama kendi çözücüsünü dener.
+    var avatarHint: String? = nil
     @EnvironmentObject private var store: SiteListStore
     @Environment(\.dismiss) private var dismiss
     @State private var newListName = ""
+
+    /// Öğe eklendikten sonra avatarı hazırla: sayfa ipucu varsa onu kullan,
+    /// yoksa oturum istemeyen sitelerde kaynağından çöz.
+    private func captureAvatar() {
+        AvatarStore.shared.ensure(url: url, pageHint: avatarHint, allowResolve: true)
+    }
 
     var body: some View {
         NavigationStack {
@@ -320,6 +361,7 @@ struct AddToListSheet: View {
                         ForEach(store.lists) { list in
                             Button {
                                 store.add(url: url, title: title, to: list.id)
+                                captureAvatar()
                                 dismiss()
                             } label: {
                                 HStack {
@@ -339,6 +381,7 @@ struct AddToListSheet: View {
                         Button("Oluştur ve ekle") {
                             let list = store.createList(named: newListName.trimmingCharacters(in: .whitespaces))
                             store.add(url: url, title: title, to: list.id)
+                            captureAvatar()
                             dismiss()
                         }
                         .disabled(newListName.trimmingCharacters(in: .whitespaces).isEmpty)

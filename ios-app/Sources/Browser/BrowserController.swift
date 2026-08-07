@@ -37,6 +37,10 @@ final class BrowserController: NSObject, ObservableObject {
     /// and switches tabs.
     @Published var wantsBrowserTab = false
 
+    /// Arşiv sekmesindeki "bulut ayarlanmamış" ekranının "Ayarlara git" butonu
+    /// bunu kaldırır; RootView görüp Ayarlar sekmesine geçer.
+    @Published var wantsSettingsTab = false
+
     let settings: AppSettings
     let records: DownloadRecordStore
     private(set) var webView: WKWebView?
@@ -75,6 +79,18 @@ final class BrowserController: NSObject, ObservableObject {
         let configuration = WKWebViewConfiguration()
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
+
+        // KÖK-GİRİŞ (#17 passkey / #18 şifre yöneticisi): passkey (WebAuthn) ve
+        // iCloud Anahtar Zinciri'nin kayıtlı-şifre önerileri WKWebView'de iOS 16+
+        // ile YERLEŞİK gelir; site kendi RP'si olduğundan (ör. google.com) hiçbir
+        // entitlement gerekmez — zaten imzasız/SideStore dağıtımında Associated
+        // Domains kullanılamaz. Bize düşen tek şey bunları KAPATMAMAK:
+        //  • Kalıcı ve paylaşımlı veri deposu — oturum sürer, AutoFill siteyle
+        //    eşleşir. Açıkça yazıyoruz ki ileride kazara .nonPersistent()'a
+        //    kaymasın (o sessizce girişleri ve önerileri bozardı).
+        //  • limitsNavigationsToAppBoundDomains ve Info.plist'te WKAppBoundDomains
+        //    KASITLI OLARAK yok: ikisi de açılırsa passkey/AutoFill kapanır.
+        configuration.websiteDataStore = .default()
 
         let controller = configuration.userContentController
         controller.addScriptMessageHandler(self, contentWorld: .defaultClient, name: "rgNative")
@@ -203,10 +219,19 @@ final class BrowserController: NSObject, ObservableObject {
     /// address-bar URL, which on an infinite feed is just the site domain. The
     /// page's __rgFocusedLink() knows the centre media's own permalink; when it
     /// offers nothing (or there is no page yet) the address bar is the fallback.
-    func focusedLink() async -> (url: String, title: String) {
-        let fallback = (addressText, pageTitle)
+    func focusedLink() async -> (url: String, title: String, avatar: String?) {
+        let fallback = (addressText, pageTitle, String?.none)
         guard let webView else { return fallback }
-        let js = "window.__rgFocusedLink ? window.__rgFocusedLink() : null;"
+        // Bağlantı ile avatar ipucu aynı anda, tek turda alınır: ikisi de o an
+        // ekrandaki sayfaya ait olsun. Avatar yalnız emin olunan yerde dolar
+        // (Instagram profil sayfası ya da içerik scriptinin __rgSiteAvatar'ı).
+        let js = """
+        (function () {
+          var link = window.__rgFocusedLink ? window.__rgFocusedLink() : null;
+          var avatar = window.__rgProfileAvatar ? window.__rgProfileAvatar() : "";
+          return { url: link ? link.url : "", title: link ? link.title : "", avatar: avatar || "" };
+        })();
+        """
         return await withCheckedContinuation { continuation in
             webView.evaluateJavaScript(js, in: nil, in: .defaultClient) { result in
                 guard case .success(let value) = result, let dict = value as? [String: Any] else {
@@ -215,9 +240,11 @@ final class BrowserController: NSObject, ObservableObject {
                 }
                 let url = (dict["url"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let title = (dict["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let avatarRaw = (dict["avatar"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 continuation.resume(returning: (
                     url.isEmpty ? fallback.0 : url,
-                    title.isEmpty ? fallback.1 : title
+                    title.isEmpty ? fallback.1 : title,
+                    avatarRaw.isEmpty ? nil : avatarRaw
                 ))
             }
         }

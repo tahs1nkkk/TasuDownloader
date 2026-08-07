@@ -17,6 +17,9 @@ struct GalleryScreen: View {
     }
 
     @State private var source: Source = .device
+    /// Cihaz ya da bulut alt-görünümü seçim moduna girince true; kaynak
+    /// değiştiriciyi kilitler.
+    @State private var selecting = false
 
     var body: some View {
         NavigationStack {
@@ -27,20 +30,38 @@ struct GalleryScreen: View {
                             ForEach(Source.allCases) { Text($0.rawValue).tag($0) }
                         }
                         .pickerStyle(.segmented)
+                        // Seçim modundayken kaynak değiştirilemez: seçime hangi
+                        // yandan (cihaz/bulut) başlandıysa orada kalınır, öbür
+                        // segment solgunlaşır. Silme ya da iptalden sonra açılır.
+                        .disabled(selecting)
+                        .opacity(selecting ? 0.4 : 1)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
 
                         if source == .device {
-                            DeviceGalleryView()
+                            DeviceGalleryView(selecting: $selecting)
                         } else {
-                            CloudGalleryView()
+                            CloudGalleryView(selecting: $selecting)
                         }
                     }
                 } else {
-                    DeviceGalleryView()
+                    DeviceGalleryView(selecting: $selecting)
                 }
             }
             .navigationTitle("Galeri")
+        }
+        // İndirme HUD'undan gelen atlama: dosya cihaza indiyse Cihaz, yalnız buluta
+        // gittiyse Bulut sekmesini öne al. Alt-galeri öğeyi açıp hedefi temizler.
+        // Sekmeye yeni geçildiğinde onChange kaçırabileceği için appear'da da bakılır.
+        .onAppear { applyRevealSource() }
+        .onChange(of: records.revealTarget) { _, _ in applyRevealSource() }
+    }
+
+    private func applyRevealSource() {
+        switch records.revealTarget {
+        case .device(_)?: source = .device
+        case .cloud(_)?: source = .cloud
+        default: break
         }
     }
 }
@@ -56,10 +77,10 @@ struct GalleryItem: Identifiable {
 struct DeviceGalleryView: View {
     @EnvironmentObject private var records: DownloadRecordStore
     @EnvironmentObject private var settings: AppSettings
+    @Binding var selecting: Bool
     @State private var authorization: PHAuthorizationStatus = .notDetermined
     @State private var assetsById: [String: PHAsset] = [:]
     @State private var selected: GalleryItem?
-    @State private var selecting = false
     @State private var chosen: Set<UUID> = []
     @State private var uploadProgress: String?
 
@@ -73,16 +94,16 @@ struct DeviceGalleryView: View {
     var body: some View {
         content
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    if !items.isEmpty {
-                        Button(selecting ? "Vazgeç" : "Seç") {
-                            selecting.toggle()
-                            chosen.removeAll()
-                        }
-                    }
-                }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: refresh) { Image(systemName: "arrow.clockwise") }
+                    HStack(spacing: 2) {
+                        if !items.isEmpty {
+                            Button(selecting ? "İptal" : "Seç") {
+                                selecting.toggle()
+                                chosen.removeAll()
+                            }
+                        }
+                        Button(action: refresh) { Image(systemName: "arrow.clockwise") }
+                    }
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -94,6 +115,22 @@ struct DeviceGalleryView: View {
             .fullScreenCover(item: $selected) { item in
                 AssetViewer(item: item)
             }
+            // HUD'dan gelen "cihaza indi" atlaması: kayıt yüklendiğinde öğeyi aç.
+            // refresh de sonunda bunu dener; böylece izin/yükleme henüz bitmemişse
+            // veriler gelince açılır.
+            .onChange(of: records.revealTarget) { _, target in
+                if case .device(_)? = target { refresh() }
+            }
+    }
+
+    /// HUD'dan işaretlenen cihaz kaydını tam ekran açar ve hedefi temizler
+    /// (aynı öğe ikinci kez açılmasın). Kayıt henüz Fotoğraflar'da bulunmuyorsa
+    /// sessizce bekler — bir sonraki refresh yeniden dener.
+    private func attemptReveal() {
+        guard case .device(let id)? = records.revealTarget else { return }
+        guard let item = items.first(where: { $0.id == id }) else { return }
+        selected = item
+        records.revealTarget = nil
     }
 
     @ViewBuilder private var content: some View {
@@ -125,20 +162,16 @@ struct DeviceGalleryView: View {
         let isChosen = chosen.contains(item.id)
         return AssetThumbView(asset: item.asset, isVideo: item.record.isVideo)
             .overlay {
+                // Seçilen medya açılmadan hafif kararır; sağ altına tik gelir.
                 if selecting && isChosen {
-                    // The same language as the in-page select mode: a glowing
-                    // white frame, not a tiny checkbox.
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(.white, lineWidth: 2.5)
-                        .shadow(color: .white.opacity(0.9), radius: 6)
-                        .padding(1)
+                    Color.black.opacity(0.35)
                 }
             }
-            .overlay(alignment: .topTrailing) {
-                if selecting {
-                    Image(systemName: isChosen ? "checkmark.circle.fill" : "circle")
+            .overlay(alignment: .bottomTrailing) {
+                if selecting && isChosen {
+                    Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 20))
-                        .foregroundStyle(isChosen ? Color.white : .white.opacity(0.7))
+                        .foregroundStyle(.white, Color.accentColor)
                         .shadow(radius: 3)
                         .padding(6)
                 }
@@ -236,6 +269,7 @@ struct DeviceGalleryView: View {
             map[asset.localIdentifier] = asset
         }
         assetsById = map
+        attemptReveal()
     }
 
     private func removeChosenFromList() {
@@ -331,17 +365,22 @@ struct AssetThumbView: View {
     @State private var image: UIImage?
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .bottomLeading) {
+        // Kare önce kurulur, kapak üstüne bindirilir (bulut ızgarasıyla aynı
+        // desen). Eski GeometryReader düzeni hücreyi kareden biraz uzun
+        // bırakabiliyor; dokunma alanı görselin altına taşınca bir alttaki kare
+        // seçiliyordu. Color.clear'ı kareye çekip contentShape'i kareye
+        // sabitleyince dokunma çerçevesi tam kare oluyor.
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .background(Color(.secondarySystemBackground))
+            .overlay {
                 if let image {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: proxy.size.width, height: proxy.size.width)
-                        .clipped()
-                } else {
-                    Rectangle().fill(Color(.secondarySystemBackground))
                 }
+            }
+            .overlay(alignment: .bottomLeading) {
                 if isVideo {
                     Image(systemName: "play.fill")
                         .font(.system(size: 12, weight: .bold))
@@ -350,9 +389,9 @@ struct AssetThumbView: View {
                         .shadow(radius: 3)
                 }
             }
-        }
-        .aspectRatio(1, contentMode: .fit)
-        .task(id: asset.localIdentifier) { loadThumb() }
+            .clipped()
+            .contentShape(Rectangle())
+            .task(id: asset.localIdentifier) { loadThumb() }
     }
 
     private func loadThumb() {

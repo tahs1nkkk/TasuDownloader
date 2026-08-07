@@ -80,7 +80,8 @@ export default {
 
     // 3) Medya (R2) — kendi yetki + yöntem yönlendirmesini yapar; akış için
     //    ?token= de kabul eder (AVPlayer/<video> başlık gönderemez).
-    if (path === "/api/media" || path.startsWith("/api/media/") || path.startsWith("/api/thumb/")) {
+    if (path === "/api/media" || path.startsWith("/api/media/")
+        || path.startsWith("/api/thumb/") || path.startsWith("/api/avatar/")) {
       return handleMedia(request, env, url);
     }
 
