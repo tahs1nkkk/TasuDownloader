@@ -5,6 +5,7 @@
   const BUTTON_ID = "rg-ripsnip-helper-button";
   const STATUS_ID = "rg-ripsnip-helper-status";
   const VIEWER_BUTTON_ID = "rg-ripsnip-viewer-button";
+  const VIEWER_WEB_ID = "rg-ripsnip-viewer-web"; // özellik D: "web listesi"
   const AVATAR_BUTTON_ID = "rg-ripsnip-avatar-button";
   const TILE_BUTTON_CLASS = "rg-ripsnip-tile-button";
   const TILE_READY_ATTR = "data-rg-ripsnip-tile-ready";
@@ -28,6 +29,30 @@
     const m = location.pathname.match(/\/niches\/([^/?#]+)/i);
     if (!m) return "";
     try { return decodeURIComponent(m[1]); } catch { return m[1]; }
+  }
+
+  // Sayfadaki RedGifs kullanıcı adı — profil (/users/{ad}) URL'sinden, yoksa
+  // izleme sayfasında (tek yaratıcı) DOM'daki yaratıcı bağlantısından.
+  function currentRedgifsUser() {
+    const m = location.pathname.match(/\/users\/([^/?#]+)/i);
+    if (m) { try { return decodeURIComponent(m[1]); } catch { return m[1]; } }
+    if (/^\/(?:watch|ifr)\//i.test(location.pathname)) {
+      const a = document.querySelector("a[href^='/users/'], a[href*='redgifs.com/users/']");
+      const mm = a && /\/users\/([^/?#]+)/i.exec(a.getAttribute("href") || "");
+      if (mm) { try { return decodeURIComponent(mm[1]); } catch { return mm[1]; } }
+    }
+    return "";
+  }
+
+  // Kaynak etiketi — özellik A: RedGifs'te niche'ten indirilmişse hem kullanıcı
+  // adı hem niche adı kaydedilsin ("<user> niche:<ad>"); değilse yalnız kullanıcı.
+  function currentSource() {
+    const parts = [];
+    const user = currentRedgifsUser();
+    const niche = currentNicheFolder();
+    if (user) parts.push(user);
+    if (niche) parts.push(`niche:${niche}`);
+    return parts.join(" ");
   }
 
   function isNicheDirectoryPage() {
@@ -283,6 +308,8 @@
     });
     viewerButton.addEventListener("click", runViewerDownload);
     document.documentElement.append(viewerButton);
+    // Web listesi butonu artık updateViewerButton() içinde tembel oluşturuluyor
+    // (installUi tek sefer çalışıp erken dönebiliyor — özellik D dayanıklılığı).
 
     const avatarButton = document.createElement("button");
     avatarButton.id = AVATAR_BUTTON_ID;
@@ -955,12 +982,36 @@
     return /^\/watch\//i.test(location.pathname) && location.hostname.endsWith("redgifs.com");
   }
 
+  // Özellik D — görüntüleyici indirme butonunun altındaki "web listesi" butonunu
+  // (yoksa) oluştur. installUi() tek sefer çalışıp erken döndüğü için burada
+  // tembel kuruyoruz; helper (weblink.js) geç yüklenirse sonraki turda yakalanır.
+  function ensureViewerWebButton() {
+    let web = document.getElementById(VIEWER_WEB_ID);
+    if (web && web.isConnected) return web;
+    if (!window.rgMakeWebIconButton) return null;
+    web = window.rgMakeWebIconButton(() => {
+      let url = "";
+      try {
+        if (isWatchPage()) url = normalizeRedgifsWatchUrl(location.href) || location.href;
+        else { const it = viewerVideoItem(); if (it && it.video) url = watchUrlFromFeedItem(it.video) || ""; }
+      } catch { /* yoksay */ }
+      return { url: url || location.href, title: document.title };
+    }, { size: clamp(Number(settings.buttonSize) || 44, 28, 72) });
+    web.id = VIEWER_WEB_ID;
+    web.style.position = "fixed";
+    web.style.display = "none";
+    document.documentElement.append(web);
+    return web;
+  }
+
   function updateViewerButton() {
     const button = document.getElementById(VIEWER_BUTTON_ID);
     if (!button) return;
 
+    const web = ensureViewerWebButton();
     const hideViewer = () => {
       button.style.display = "none";
+      if (web) web.style.display = "none";
       document.documentElement.classList.remove("rg-viewer-open");
     };
 
@@ -979,6 +1030,11 @@
     button.style.left = `${left}px`;
     button.style.top = `${top}px`;
     button.style.display = "grid";
+    if (web) {
+      web.style.left = `${left}px`;
+      web.style.top = `${clamp(top + size + 8, 8, window.innerHeight - size - 8)}px`;
+      web.style.display = "grid";
+    }
     // Viewer open → hide the per-tile buttons so only this one shows.
     document.documentElement.classList.add("rg-viewer-open");
   }
@@ -1218,7 +1274,7 @@
   function sendDirectDownload(urls, fallbackSourceUrl = "", options = {}) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("Direct media timed out.")), 18000);
-      chrome.runtime.sendMessage({ type: "DIRECT_DOWNLOAD", urls, fallbackSourceUrl, folderName: chosenFolder, subFolder: currentNicheFolder(), ...options }, (response) => {
+      chrome.runtime.sendMessage({ type: "DIRECT_DOWNLOAD", urls, fallbackSourceUrl, folderName: chosenFolder, subFolder: currentNicheFolder(), source: currentSource(), ...options }, (response) => {
         clearTimeout(timer);
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message));
@@ -2253,13 +2309,64 @@
     chosenFolder = "";
     const video = card && card.querySelector ? card.querySelector("video") : null;
     const directUrls = settings.directDownloads
-      ? collectDirectMediaCandidates(card, video, { includePerformance: false })
+      ? [...new Set([
+          ...collectDirectMediaCandidates(card, video, { includePerformance: false }),
+          ...cdnUrlsForWatch(watchUrl)
+        ])]
       : [];
-    await sendDirectDownload(directUrls, watchUrl, {
+    try {
+      await sendDirectDownload(directUrls, watchUrl, {
+        allowRipsnipFallback: false,
+        preferRipsnipWhenOpen: settings.ripsnipWhenOpen,
+        expectedSlug: expectedSlugFromUrl(watchUrl)
+      });
+      return;
+    } catch (error) {
+      // Direct CDN + slug-API both came up empty (the "url bulunamadı" case a
+      // grid card with no live <video> hits). Bring the card into view and let
+      // the share-menu Copy-Link path resolve it, exactly like the visible
+      // feed-video button does, instead of surfacing the error (KÖK-VIDEO-POSTER).
+      console.warn("[rg-redgifs] köprü kart doğrudan yol başarısız, Copy Link:", error && error.message || error);
+    }
+    try { card?.scrollIntoView?.({ block: "center", inline: "center", behavior: "instant" }); } catch { /* ignore */ }
+    await sleep(200);
+    const url = await copyCurrentShareLink();
+    await sendDirectDownload([], url, {
       allowRipsnipFallback: false,
       preferRipsnipWhenOpen: settings.ripsnipWhenOpen,
-      expectedSlug: expectedSlugFromUrl(watchUrl)
+      expectedSlug: expectedSlugFromUrl(url)
     });
+  }
+
+  // Grid/feed cells that carry a /watch/ link but no data-feed-item-id — the
+  // shape some niches and creator layouts render. Mirrors installWatchCardButtons'
+  // card resolution so the app sees exactly the media the on-card buttons would.
+  function bridgeWatchLinkCells(seen) {
+    const out = [];
+    for (const link of document.querySelectorAll("a[href*='/watch/']")) {
+      const watchUrl = normalizeRedgifsWatchUrl(link.href);
+      if (!watchUrl) continue;
+      let card = link;
+      const lr = link.getBoundingClientRect();
+      if (lr.width < 120 || lr.height < 120) {
+        let node = link.parentElement;
+        for (let depth = 0; node && depth < 5; depth += 1, node = node.parentElement) {
+          const r = node.getBoundingClientRect();
+          if (r.width >= 120 && r.height >= 120) { card = node; break; }
+        }
+      }
+      if (!(card instanceof HTMLElement) || seen.has(card)) continue;
+      const cr = card.getBoundingClientRect();
+      if (cr.width < 120 || cr.height < 120) continue;
+      if (!visibleRect(card).visible) continue;
+      if (isProbablyAdElement(card)) continue;
+      seen.add(card);
+      const media = card.querySelector("video, img") || card;
+      out.push({ el: media, kind: card.querySelector("video") ? "video" : "image", src: "",
+        permalink: watchUrl, title: "",
+        resolve: () => bridgeWatchCardDownload(watchUrl, card).catch(() => {}) });
+    }
+    return out;
   }
 
   async function bridgeImageDownload(item) {
@@ -2397,6 +2504,13 @@
       seen.add(item);
       out.push(descriptor);
     }
+
+    // Some niches and creator layouts render cards with a /watch/ link but no
+    // data-feed-item-id, so the loop above finds nothing ("niches'te hiçbir
+    // video algılanmıyor"). Fall back to those cards — canonical watch links are
+    // RedGifs' most stable structure, so this covers the pages the attribute
+    // scan misses without inventing per-layout selectors.
+    if (!out.length) out.push(...bridgeWatchLinkCells(seen));
     return out;
   };
 

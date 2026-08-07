@@ -36,10 +36,11 @@ targets:
           - UIInterfaceOrientationLandscapeRight
     settings:
       base:
-        # Deliberately unchanged by the TasuDownloader rename: keeping the
-        # identifier means a new build replaces the installed app instead of
-        # landing beside it and burning one of the free account's three slots.
-        PRODUCT_BUNDLE_IDENTIFIER: com.lsatv.ripsnip
+        # Clean TasuDownloader identity — no personal handle, no old "ripsnip"
+        # brand. Changing the identifier means the next build installs beside any
+        # previous app instead of replacing it, and takes a fresh slot of the
+        # free account's three; that one-time cost is accepted for the rename.
+        PRODUCT_BUNDLE_IDENTIFIER: com.tasuapps.tasudownloader
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Unsigned on purpose: SideStore/AltStore re-signs on the phone with a

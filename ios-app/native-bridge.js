@@ -90,7 +90,7 @@
   // The native settings screen calls this after every change so handlers that
   // subscribed to chrome.storage.onChanged restyle themselves live.
   window.__rgNativeSettingsChanged = (newValue) => {
-    const changes = { rgRipsnipSettings: { newValue: newValue || {} } };
+    const changes = { tasuDownloaderSettings: { newValue: newValue || {} } };
     for (const listener of [...changeListeners]) {
       try {
         listener(changes, "local");
@@ -134,7 +134,7 @@
   // Scrolller builds its controls inside shadow roots the stylesheet cannot
   // cross, so the touch overrides are pushed in from here (ported unchanged
   // from the Orion bridge).
-  const SHADOW_HOSTS = ["rg-scrolller-v2-host", "rg-scrolller-card-buttons"];
+  const SHADOW_HOSTS = ["rg-scrolller-v2-host"];
   const SHADOW_STYLE_ID = "rg-ios-shadow-css";
   const SHADOW_CSS = `
     button {
@@ -355,10 +355,19 @@
   // when the floating button is pressed again (download the selection) or
   // long-pressed (cancel), or via the İptal control on the bar.
   //
-  // KÖK-SEÇİM-OVERLAY: the overlay itself takes pointer events (pointer-events
-  // :auto), so taps on the page's own links and site buttons are swallowed
-  // instead of navigating — but touch-action:pan-y lets a drag still scroll the
-  // page. Frames and the control bar sit above the overlay and stay tappable.
+  // KÖK-SEÇİM-KAYDIRMA: the overlay is pointer-TRANSPARENT. An earlier version
+  // took the taps itself (pointer-events:auto + touch-action:pan-y), which meant
+  // the finger landed on a fixed layer whose only scrollable ancestor is the
+  // document — so anywhere the real scroller is something else (Instagram reels,
+  // a DM thread, a carousel's horizontal track) the page stayed frozen and the
+  // layer rubber-banded instead. Now the touch reaches whatever is actually
+  // under it and iOS scrolls it natively, momentum and all.
+  //
+  // Page taps are still swallowed, but one layer up: click/mousedown/mouseup are
+  // cancelled in the capture phase, and touch scrolling never uses those. A tap
+  // is recognised from pointerdown→pointerup (iOS sends pointercancel the moment
+  // it takes the gesture over for scrolling, so a drag can never toggle), and
+  // matched to a frame by coordinates.
   //
   // Selection survives scrolling: an entry whose element leaves the viewport
   // keeps its state with the frame hidden, and reappears on the way back. If a
@@ -412,19 +421,13 @@
       let entry = picker.entries.get(media.el);
       if (!entry) {
         const frame = document.createElement("div");
+        // Purely decorative: taps are matched by coordinate (entryAt), so the
+        // frame must not intercept the touch that scrolls the page.
         frame.style.cssText = [
-          "position:fixed", "border-radius:12px", "pointer-events:auto",
-          // pan-y lets a drag that starts on a frame still scroll the page;
-          // only a clean tap toggles.
-          "touch-action:pan-y", "-webkit-tap-highlight-color:transparent",
+          "position:fixed", "border-radius:12px", "pointer-events:none",
           "transition:border-color .12s, box-shadow .12s"
         ].join(";");
         const created = { el: media.el, media, selected: false, frame };
-        frame.addEventListener("click", (event) => {
-          event.stopPropagation();
-          event.preventDefault();
-          toggleEntry(created);
-        });
         picker.frames.appendChild(frame);
         picker.entries.set(media.el, created);
         entry = created;
@@ -454,16 +457,54 @@
     });
   }
 
-  // Swallow every click/tap that lands on the overlay backdrop (not a frame or a
-  // control) so page-delegated handlers on document never navigate while
-  // selecting. Frames and buttons stopPropagation in their own handlers, so
-  // they never reach here.
-  function pickerBlock(event) {
-    if (!picker) return;
-    if (event.target === picker.layer || event.target === picker.dim || event.target === picker.frames) {
-      event.stopPropagation();
-      event.preventDefault();
+  // The frame under a point. The smallest match wins: a media nested inside
+  // another (a carousel slide within a post) is the more specific answer.
+  function entryAt(x, y) {
+    let best = null;
+    let bestArea = Infinity;
+    for (const entry of picker.entries.values()) {
+      if (entry.frame.style.display === "none") continue;
+      const r = entry.media.rect;
+      if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
+      const area = r.width * r.height;
+      if (area < bestArea) { bestArea = area; best = entry; }
     }
+    return best;
+  }
+
+  // Mouse-layer events only. Touch scrolling never produces these, so cancelling
+  // them stops the page navigating without costing a single pixel of scroll.
+  const PICKER_GUARDED = ["click", "auxclick", "mousedown", "mouseup", "contextmenu", "dragstart"];
+
+  function inPickerControls(target) {
+    return Boolean(picker && target && picker.bar.contains(target));
+  }
+
+  function pickerGuard(event) {
+    if (!picker || inPickerControls(event.target)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
+  function pickerDown(event) {
+    if (!picker || inPickerControls(event.target)) return;
+    picker.tap = { x: event.clientX, y: event.clientY, at: Date.now() };
+  }
+
+  function pickerUp(event) {
+    if (!picker) return;
+    const tap = picker.tap;
+    picker.tap = null;
+    if (!tap || inPickerControls(event.target)) return;
+    // A drag is a scroll, not a choice.
+    if (Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 12) return;
+    if (Date.now() - tap.at > 700) return;
+    const entry = entryAt(event.clientX, event.clientY);
+    if (entry) toggleEntry(entry);
+  }
+
+  function pickerDropTap() {
+    if (picker) picker.tap = null;
   }
 
   function setDark(on) {
@@ -480,7 +521,10 @@
     if (picker.raf) cancelAnimationFrame(picker.raf);
     removeEventListener("scroll", pickerOnMove, true);
     removeEventListener("resize", pickerOnMove, true);
-    picker.layer.removeEventListener("click", pickerBlock, true);
+    for (const type of PICKER_GUARDED) removeEventListener(type, pickerGuard, true);
+    removeEventListener("pointerdown", pickerDown, true);
+    removeEventListener("pointerup", pickerUp, true);
+    removeEventListener("pointercancel", pickerDropTap, true);
     picker.layer.remove();
     picker = null;
     postPickerState(false, 0);
@@ -503,8 +547,9 @@
     pickerCancel();
     const layer = document.createElement("div");
     layer.id = PICKER_LAYER_ID;
-    // pointer-events:auto here is the whole point — the overlay eats page taps.
-    layer.style.cssText = "position:fixed;inset:0;z-index:2147483600;pointer-events:auto;touch-action:pan-y";
+    // pointer-events:none is the whole point — the finger reaches the page's own
+    // scroller. Only the control bar opts back in.
+    layer.style.cssText = "position:fixed;inset:0;z-index:2147483600;pointer-events:none";
 
     const dim = document.createElement("div");
     dim.style.cssText = "position:absolute;inset:0;pointer-events:none;transition:background .15s";
@@ -544,16 +589,20 @@
     layer.appendChild(bar);
 
     picker = {
-      layer, dim, frames, countText, darkButton,
+      layer, dim, frames, bar, countText, darkButton,
       dark: true,
       entries: new Map(),
       raf: 0,
+      tap: null,
       // Scroll and resize reposition immediately; the slow tick catches DOM
       // churn (feeds inserting tiles) that fires no event at all.
       timer: setInterval(pickerSync, 700)
     };
     (document.body || document.documentElement).appendChild(layer);
-    layer.addEventListener("click", pickerBlock, true);
+    for (const type of PICKER_GUARDED) addEventListener(type, pickerGuard, true);
+    addEventListener("pointerdown", pickerDown, { capture: true, passive: true });
+    addEventListener("pointerup", pickerUp, { capture: true, passive: true });
+    addEventListener("pointercancel", pickerDropTap, { capture: true, passive: true });
     addEventListener("scroll", pickerOnMove, { capture: true, passive: true });
     addEventListener("resize", pickerOnMove, true);
     setDark(true);

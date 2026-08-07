@@ -77,7 +77,7 @@ KÖK-A ile bağlı (buton çözümü hataya düşüyor). DM reels (#15) aynı k�
 ### #2 — Girişi Google'a bağla, "Bulut ve Eşitleme" panelini kaldır  [auth]
 - `SettingsScreen.swift:33-65` "Bulut ve Eşitleme" bölümü kaldırılsın.
 - Uygulama açılışına Google ile giriş gelsin; giriş yapınca otomatik buluta bağlı
-  olsun (adres+token elle girilmesin). Kendi maili (`lsatvofficial@gmail.com`)
+  olsun (adres+token elle girilmesin). Kendi maili (`you@example.com`)
   değilse uygulamaya almasın (web tarafındaki `ALLOWED_EMAIL` gate'inin eşi).
 - Bağlam: web zaten Google OAuth ile korunuyor (Worker `auth.js`). Uygulamanın da
   aynı hesapla girip ARCHIVE_TOKEN'ı elle istemeden alması gerek → mimari karar

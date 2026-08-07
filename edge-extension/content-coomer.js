@@ -14,6 +14,81 @@
     return /^\/[^/]+\/user\/[^/]+\/post\/[^/?]+\/?$/i.test(location.pathname);
   }
 
+  // A single creator's own page ("/{service}/user/{id}"), i.e. their post grid —
+  // NOT the site's creator directory (/, /artists), which really is a wall of
+  // other creators and ads. Only here do we vouch for grid thumbnails, avatar
+  // and banner.
+  function isCreatorProfilePage() {
+    return /^\/[^/]+\/user\/[^/]+\/?$/i.test(location.pathname);
+  }
+
+  // The site-wide post walls: /posts (recent) and /posts/popular (with its
+  // ?date=&period= day/week/month filters). A grid of post cards from many
+  // creators, same markup as a profile grid — so the thumbnail→full-image
+  // download works here too, and the user can grab pictures without opening
+  // each post (which is what currently throws API errors).
+  function isListingGridPage() {
+    return /^\/posts(?:\/popular)?\/?$/i.test(location.pathname);
+  }
+
+  // The full-size media URL behind a grid thumbnail. Coomer serves previews from
+  // img.coomer.st/thumbnail/data/<hash>.<ext> and the original from
+  // coomer.st/data/<hash>.<ext> — same path, so the transform is exact.
+  function fullFromThumbnail(value) {
+    const thumb = directThumbnailUrl(value);
+    if (!thumb) return "";
+    try {
+      const parsed = new URL(thumb);
+      const path = parsed.pathname.replace(/^\/thumbnail\//, "/");
+      return `https://coomer.st${path}`;
+    } catch {
+      return "";
+    }
+  }
+
+  // Avatar (/icons/) and banner (/banners/) live on img.coomer.st regardless of
+  // the header's markup, so match by URL not by fragile class names.
+  function profileAssetUrl(value, kind) {
+    try {
+      const parsed = new URL(String(value || ""), location.href);
+      const dir = kind === "avatar" ? "/icons/" : "/banners/";
+      return parsed.hostname === "img.coomer.st" && parsed.pathname.startsWith(dir)
+        ? parsed.href
+        : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function bestImgUrl(img) {
+    if (!img) return "";
+    let url = img.currentSrc || img.getAttribute("src") || "";
+    let bestW = 0;
+    for (const part of (img.getAttribute("srcset") || "").split(",")) {
+      const [u, d] = part.trim().split(/\s+/);
+      const w = parseInt(d) || 0;
+      if (u && w >= bestW) { bestW = w; url = u; }
+    }
+    return url;
+  }
+
+  // The header's avatar and banner images, as {img, url, kind} — the profile
+  // picture and cover the report asks the app to detect too.
+  function profileHeaderAssets() {
+    const found = [];
+    const seen = new Set();
+    for (const img of document.querySelectorAll("header img, .user-header img, main img")) {
+      const src = bestImgUrl(img);
+      const avatar = profileAssetUrl(src, "avatar");
+      const banner = avatar ? "" : profileAssetUrl(src, "banner");
+      const url = avatar || banner;
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      found.push({ img, url, kind: avatar ? "avatar" : "banner" });
+    }
+    return found;
+  }
+
   function mediaKind(url) {
     let value = String(url || "");
     try {
@@ -63,6 +138,15 @@
     return globalThis.RG_SETTINGS.cleanPathPart(id, "user");
   }
 
+  // A listing-grid card's creator, for the download folder. Every card on the
+  // popular/recent walls belongs to a different creator, so the folder must come
+  // from that card's own "/{service}/user/{creator}/…" href — profileName()
+  // only makes sense on a single creator's page.
+  function creatorFromCard(card) {
+    const id = (card.getAttribute("href") || "").match(/\/user\/([^/]+)/i)?.[1];
+    return id ? globalThis.RG_SETTINGS.cleanPathPart(id, "user") : profileName();
+  }
+
   function ensureStyle() {
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement("style");
@@ -80,12 +164,46 @@
         border: 0 !important; border-radius: 999px !important; color: #fff !important;
         background: rgba(37,99,235,.94) !important; box-shadow: 0 6px 18px rgba(0,0,0,.48) !important;
         cursor: pointer !important; pointer-events: auto !important;
+        opacity: 0 !important; transform: scale(.92) !important;
+        transition: opacity .12s ease, transform .12s ease, background .12s ease !important;
+      }
+      /* Buton, kartın üstüne gelince belirir (grid'de 50 mavi daire kalabalık
+         etmesin). Global "Buton görünürlüğü → Her zaman" seçilirse ya da
+         dokunmatik ekranda (:hover hiç tetiklenmez) sürekli görünür. Web-listesi
+         ikonu da aynı görünürlüğü izler ki tek başına havada durmasın. */
+      .${LINK_HOST_CLASS} > .rg-web-icon,
+      .${VIDEO_HOST_CLASS} > .rg-web-icon {
+        opacity: 0 !important; transition: opacity .12s ease !important;
+      }
+      .${LINK_HOST_CLASS}:hover > .${BUTTON_CLASS},
+      .${VIDEO_HOST_CLASS}:hover > .${BUTTON_CLASS},
+      .${LINK_HOST_CLASS}:hover > .rg-web-icon,
+      .${VIDEO_HOST_CLASS}:hover > .rg-web-icon,
+      html[data-rg-downloader-button-visibility="always"] .${BUTTON_CLASS},
+      html[data-rg-downloader-button-visibility="always"] .${LINK_HOST_CLASS} > .rg-web-icon,
+      html[data-rg-downloader-button-visibility="always"] .${VIDEO_HOST_CLASS} > .rg-web-icon,
+      .${BUTTON_CLASS}:focus-visible {
+        opacity: 1 !important; transform: scale(1) !important;
       }
       .${BUTTON_CLASS}:hover { background: #1d4ed8 !important; }
       .${BUTTON_CLASS}:disabled { opacity: .58 !important; cursor: wait !important; }
       .${BUTTON_CLASS} svg { width: 22px !important; height: 22px !important; pointer-events: none !important; }
+      @media (hover: none) {
+        .${BUTTON_CLASS} { opacity: 1 !important; transform: none !important; }
+        .${LINK_HOST_CLASS} > .rg-web-icon,
+        .${VIDEO_HOST_CLASS} > .rg-web-icon { opacity: 1 !important; }
+      }
     `;
     (document.head || document.documentElement).appendChild(style);
+    applyButtonVisibility();
+  }
+
+  // Global "Buton görünürlüğü" ayarını köke yansıt; CSS bununla PC'de "Her zaman"
+  // modunu açar. Telefonda/dokunmatikte buton zaten @media(hover:none) ile hep
+  // görünür — bu ayar yalnız fareli ekranı (PC) etkiler.
+  function applyButtonVisibility() {
+    document.documentElement.dataset.rgDownloaderButtonVisibility =
+      settings.buttonVisibility === "always" ? "always" : "hover";
   }
 
   function sendDownload(url, fallbackUrl, userName) {
@@ -98,6 +216,7 @@
         type: "DIRECT_DOWNLOAD",
         urls,
         folderName: userName,
+        source: userName || "", // özellik A: Coomer'da yalnız kullanıcı adı
         skipReachability: true,
         fallbackOnNoTransfer: urls.length > 1,
         transferTimeoutMs: fallbackUrl ? 900 : 2500,
@@ -112,7 +231,7 @@
     });
   }
 
-  function makeButton(url, kind, fallbackUrl = "") {
+  function makeButton(url, kind, fallbackUrl = "", userName = null) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = BUTTON_CLASS;
@@ -133,7 +252,7 @@
       if (button.disabled) return;
       button.disabled = true;
       try {
-        await sendDownload(url, fallbackUrl, profileName());
+        await sendDownload(url, fallbackUrl, userName || profileName());
         button.style.setProperty("background", "#15803d", "important");
         setTimeout(() => button.style.removeProperty("background"), 900);
       } catch (error) {
@@ -149,18 +268,36 @@
 
   function removeButtons() {
     document.querySelectorAll(`.${BUTTON_CLASS}`).forEach((button) => button.remove());
+    document.querySelectorAll(`.${LINK_HOST_CLASS} > .rg-web-icon, .${VIDEO_HOST_CLASS} > .rg-web-icon`).forEach((b) => b.remove());
     document.querySelectorAll(`.${LINK_HOST_CLASS}`).forEach((element) => element.classList.remove(LINK_HOST_CLASS));
     document.querySelectorAll(`.${VIDEO_HOST_CLASS}`).forEach((element) => element.classList.remove(VIDEO_HOST_CLASS));
   }
 
-  function addLinkButton(anchor, url, kind) {
+  // Özellik D — indirme butonunun hemen altına "web listesine ekle". Yalnız
+  // gerçek gönderi sayfasında (isPostPage); ızgara/profil küçük görsellerinde
+  // değil. Kapsam: "sadece ana medya". Bağlantı = gönderinin permalink'i.
+  function addWebButton(host) {
+    if (!window.rgMakeWebIconButton || !isPostPage()) return;
+    if (host.querySelector(":scope > .rg-web-icon")) return;
+    const web = window.rgMakeWebIconButton(
+      () => ({ url: location.href, title: document.title || profileName() }),
+      { size: 40 }
+    );
+    web.style.position = "absolute";
+    web.style.left = "8px";
+    web.style.top = "56px";
+    host.appendChild(web);
+  }
+
+  function addLinkButton(anchor, url, kind, userName = null) {
     if (anchor.querySelector(`:scope > .${BUTTON_CLASS}`)) return;
     anchor.classList.add(LINK_HOST_CLASS);
     const media = anchor.querySelector(kind === "image" ? "img" : "video");
     const loadedUrl = kind === "image"
       ? directThumbnailUrl(media?.currentSrc || media?.getAttribute("src"))
       : "";
-    anchor.appendChild(makeButton(url, kind, loadedUrl));
+    anchor.appendChild(makeButton(url, kind, loadedUrl, userName));
+    addWebButton(anchor);
   }
 
   function videoSource(video) {
@@ -178,22 +315,57 @@
     if (!host || host.querySelector(`:scope > .${BUTTON_CLASS}[data-rg-kind="video"]`)) return;
     host.classList.add(VIDEO_HOST_CLASS);
     host.appendChild(makeButton(url, "video"));
+    addWebButton(host);
+  }
+
+  // A profile grid card's full-size image, derived from its thumbnail. Video
+  // posts have no direct file here (the real video lives on the post page), so
+  // those cards are left to the post-page flow; image posts download in place.
+  function gridCardImage(card) {
+    const img = card.querySelector("img");
+    return img ? fullFromThumbnail(bestImgUrl(img)) : "";
   }
 
   function scan() {
-    if (!settings.coomerButtons || !isPostPage()) {
+    if (!settings.coomerButtons || !(isPostPage() || isCreatorProfilePage() || isListingGridPage())) {
       removeButtons();
       return;
     }
     ensureStyle();
-    for (const anchor of document.querySelectorAll("main a[href]")) {
-      const url = directMediaUrl(anchor.href);
-      const kind = mediaKind(url);
-      if (url && kind) addLinkButton(anchor, url, kind);
+
+    if (isPostPage()) {
+      for (const anchor of document.querySelectorAll("main a[href]")) {
+        const url = directMediaUrl(anchor.href);
+        const kind = mediaKind(url);
+        if (url && kind) addLinkButton(anchor, url, kind);
+      }
+      for (const video of document.querySelectorAll("main video")) {
+        const url = videoSource(video);
+        if (url) addVideoButton(video, url);
+      }
+      return;
     }
-    for (const video of document.querySelectorAll("main video")) {
-      const url = videoSource(video);
-      if (url) addVideoButton(video, url);
+
+    // A creator page also carries an avatar + banner (the listing walls don't).
+    if (isCreatorProfilePage()) {
+      for (const asset of profileHeaderAssets()) {
+        const host = asset.img.closest("a") || asset.img.parentElement;
+        if (host && !host.querySelector(`:scope > .${BUTTON_CLASS}`)) {
+          host.classList.add(LINK_HOST_CLASS);
+          host.appendChild(makeButton(asset.url, "image"));
+        }
+      }
+    }
+
+    // Post-card thumbnails on a profile grid AND the /posts, /posts/popular
+    // walls share the same markup. Deriving the full image from the thumbnail
+    // downloads the picture in place, without opening the post — the only way
+    // through while Coomer's post pages are throwing API errors. On the walls
+    // each card is a different creator, so the folder name comes from the card.
+    const perCard = isListingGridPage();
+    for (const card of document.querySelectorAll("main a[href*='/post/']")) {
+      const url = gridCardImage(card);
+      if (url) addLinkButton(card, url, "image", perCard ? creatorFromCard(card) : null);
     }
   }
 
@@ -214,26 +386,55 @@
   // carries the post permalink so the list saves the real link, not the domain.
   window.__rgSiteName = "coomer.st";
   window.__rgCollectMedia = () => {
-    if (!isPostPage()) return [];
-    const permalink = location.href;
     const title = profileName();
     const out = [];
     const seen = new Set();
-    for (const anchor of document.querySelectorAll("main a[href]")) {
-      const url = directMediaUrl(anchor.href);
-      if (!url || mediaKind(url) !== "image") continue;
-      const img = anchor.querySelector("img");
-      if (!img || seen.has(img)) continue;
-      seen.add(img);
-      out.push({ el: img, kind: "image", src: url, permalink, title });
+
+    if (isPostPage()) {
+      const permalink = location.href;
+      for (const anchor of document.querySelectorAll("main a[href]")) {
+        const url = directMediaUrl(anchor.href);
+        if (!url || mediaKind(url) !== "image") continue;
+        const img = anchor.querySelector("img");
+        if (!img || seen.has(img)) continue;
+        seen.add(img);
+        out.push({ el: img, kind: "image", src: url, permalink, title });
+      }
+      for (const video of document.querySelectorAll("main video")) {
+        const url = videoSource(video);
+        if (!url || seen.has(video)) continue;
+        seen.add(video);
+        out.push({ el: video, kind: "video", src: url, permalink, title });
+      }
+      return out;
     }
-    for (const video of document.querySelectorAll("main video")) {
-      const url = videoSource(video);
-      if (!url || seen.has(video)) continue;
-      seen.add(video);
-      out.push({ el: video, kind: "video", src: url, permalink, title });
+
+    // Profile grids and the /posts + /posts/popular walls: avatar/banner
+    // (profile only), then every post-card image — so the picker multi-selects
+    // a whole wall straight from the thumbnails, without opening each post
+    // (which is what currently API-errors). On the walls each card is a
+    // different creator, so the folder/title comes from the card.
+    if (isCreatorProfilePage() || isListingGridPage()) {
+      if (isCreatorProfilePage()) {
+        for (const asset of profileHeaderAssets()) {
+          out.push({ el: asset.img, kind: "image", src: asset.url, permalink: location.href, title });
+          seen.add(asset.img);
+        }
+      }
+      const perCard = isListingGridPage();
+      for (const card of document.querySelectorAll("main a[href*='/post/']")) {
+        const img = card.querySelector("img");
+        if (!img || seen.has(img)) continue;
+        const url = gridCardImage(card);
+        if (!url) continue;
+        seen.add(img);
+        const permalink = (() => { try { return new URL(card.getAttribute("href"), location.href).href; } catch { return location.href; } })();
+        out.push({ el: img, kind: "image", src: url, permalink, title: perCard ? creatorFromCard(card) : title });
+      }
+      return out;
     }
-    return out;
+
+    return [];
   };
 
   new MutationObserver(scheduleScan).observe(document.documentElement, { childList: true, subtree: true });
@@ -241,10 +442,12 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local" || !changes[SETTINGS_KEY]) return;
     settings = { ...globalThis.RG_SETTINGS.DEFAULT_SETTINGS, ...(changes[SETTINGS_KEY].newValue || {}) };
+    applyButtonVisibility();
     scheduleScan();
   });
   chrome.storage.local.get(SETTINGS_KEY, (items) => {
     settings = { ...globalThis.RG_SETTINGS.DEFAULT_SETTINGS, ...(items?.[SETTINGS_KEY] || {}) };
+    applyButtonVisibility();
     scan();
   });
 })();

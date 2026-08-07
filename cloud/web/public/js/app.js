@@ -5,8 +5,8 @@
 // tutmaya gerek kalmıyor — o alan site sekmelerine ayrıldı.
 
 import {
-  $, $$, ICON, PALETTE, S, api, clear, confirmBox, el, hideScrim, newId, promptBox,
-  saveMeta, showScrim, toast
+  $, $$, BW_FREE, ICON, PALETTE, S, api, bwCookie, bwGet, bwSet, clear, confirmBox, dialog, el,
+  hideScrim, newId, promptBox, saveMeta, showScrim, thumbURL, toast
 } from "./core.js";
 import * as lists from "./lists.js";
 import * as media from "./media.js";
@@ -59,7 +59,8 @@ function currentDrive() {
 function paintBrand() {
   const drive = currentDrive();
   $("#brand-name").textContent = drive ? drive.name : "Tasu Arşiv";
-  $("#brand-dot").style.background = drive ? drive.accent : "";
+  // Simge artık gerçek bir <img>; arşivin rengi arkasındaki halo olarak duruyor.
+  $("#brand-dot").style.setProperty("--dot", drive ? drive.accent : "");
   $("#brand-ver").textContent = `v${S.version}`;
 }
 
@@ -72,7 +73,11 @@ async function switchDrive(id) {
   localStorage.setItem("tasu.drive", id);
   paintBrand();
   closeDrawer();
+  // Listeler de arşive bağlı. Sunucudan tekrar çekmeye gerek yok — havuz tek,
+  // ayrım etikette — ama yeniden çizilmeleri şart, yoksa önceki arşivin notları
+  // ekranda kalıyordu.
   await media.load();
+  lists.render();
   media.renderCats();
 }
 
@@ -81,35 +86,100 @@ function closeDrawer() {
   hideScrim();
 }
 
+// Arşiv düzenleme: ad, renk ve kapak görseli. Görsel arşivin kendi
+// dosyalarından seçiliyor ve yalnız bu pencere açıldığında yükleniyor.
+async function editDrive(drive) {
+  const draft = { name: drive.name, accent: drive.accent, banner: drive.banner || "" };
+
+  const choice = await dialog({
+    title: "Arşiv",
+    build: (box) => {
+      const input = el("input", { type: "text", value: drive.name, maxlength: 60 });
+      input.addEventListener("input", () => { draft.name = input.value; });
+      box.append(el("label", { class: "f" }, el("span", {}, "Ad"), input));
+
+      const colors = el("div", { class: "swatches" });
+      for (const color of PALETTE) {
+        const swatch = el("button", {
+          type: "button", class: `swatch${color === draft.accent ? " on" : ""}`,
+          style: `background:${color}`,
+          onclick: () => {
+            colors.querySelectorAll(".swatch").forEach((s) => s.classList.remove("on"));
+            swatch.classList.add("on");
+            draft.accent = color;
+          }
+        });
+        colors.append(swatch);
+      }
+      box.append(el("label", { class: "f" }, el("span", {}, "Renk"), colors));
+
+      const picker = el("div", { class: "picker" });
+      const none = el("button", {
+        type: "button", class: `picker-none${draft.banner ? "" : " on"}`,
+        onclick: () => {
+          picker.querySelectorAll("button").forEach((b) => b.classList.remove("on"));
+          none.classList.add("on");
+          draft.banner = "";
+        }
+      }, "yok");
+      picker.append(none);
+      for (const item of S.media.filter((m) => m.kind === "image").slice(0, 120)) {
+        const button = el("button", {
+          type: "button", class: draft.banner === item.key ? "on" : "", title: item.name,
+          onclick: () => {
+            picker.querySelectorAll("button").forEach((b) => b.classList.remove("on"));
+            button.classList.add("on");
+            draft.banner = item.key;
+          }
+        }, el("img", { src: thumbURL(item.key), loading: "lazy", decoding: "async", alt: "" }));
+        picker.append(button);
+      }
+      box.append(el("label", { class: "f" }, el("span", {}, "Kapak görseli"), picker));
+    },
+    buttons: [
+      { label: "Vazgeç", value: null },
+      { label: "Kaydet", kind: "primary", value: "save" }
+    ]
+  });
+  if (choice !== "save") return;
+
+  drive.name = draft.name.trim() || drive.name;
+  drive.accent = draft.accent;
+  if (draft.banner) drive.banner = draft.banner; else delete drive.banner;
+  await saveMeta(true);
+  paintBrand();
+  openDrawer();
+}
+
 function openDrawer() {
   const drawer = $("#drive-drawer");
   clear(drawer);
   drawer.append(el("h2", {}, "Arşivler"));
-  drawer.append(el("p", { class: "hint" },
-    "Her arşiv ayrı bir depo: dosyaları, kategorileri ve site sekmeleri birbirine karışmaz."));
 
   for (const drive of S.meta.drives) {
+    // Kapak soldan sağa siyaha eriyor: sağdaki ad ve sayı her görselin üstünde
+    // okunur kalsın diye, görselin kendisi de tamamen kaybolmasın diye.
     const row = el("button", {
-      class: `drive-row${drive.id === S.drive ? " on" : ""}`, type: "button",
+      class: `drive-row${drive.id === S.drive ? " on" : ""}${drive.banner ? " has-art" : ""}`,
+      type: "button",
+      style: drive.banner ? `--art:url("${thumbURL(drive.banner)}")` : "",
       onclick: () => switchDrive(drive.id),
-      oncontextmenu: async (event) => {
-        event.preventDefault();
-        const name = await promptBox("Arşivi yeniden adlandır", "Ad", drive.name);
-        if (!name) return;
-        drive.name = name;
-        saveMeta();
-        paintBrand();
-        openDrawer();
-      }
+      oncontextmenu: (event) => { event.preventDefault(); editDrive(drive); }
     },
       el("span", { class: "drive-mark", style: `background:${drive.accent}` }, drive.name.slice(0, 1).toUpperCase()),
       el("span", { class: "drive-meta" },
         el("b", {}, drive.name),
         el("span", {}, drive.id === S.drive ? `${S.media.length} dosya` : "geçmek için dokun"))
     );
+
+    row.append(el("span", {
+      class: "drive-kill drive-edit", html: ICON.pencil, title: "Düzenle",
+      onclick: (event) => { event.stopPropagation(); editDrive(drive); }
+    }));
+
     if (drive.id !== "main") {
       row.append(el("span", {
-        class: "drive-kill", html: ICON.trash,
+        class: "drive-kill", html: ICON.trash, title: "Kaldır",
         onclick: async (event) => {
           event.stopPropagation();
           const ok = await confirmBox("Arşiv listeden kaldırılsın mı?",
@@ -153,6 +223,85 @@ function openDrawer() {
 
   drawer.hidden = false;
   showScrim(closeDrawer);
+}
+
+/* --------------------------------------------------------------------- tema */
+
+// Üç durum: cihaza uy → açık → koyu → cihaza uy. "auto" hiçbir öznitelik
+// bırakmaz, böylece CSS'teki prefers-color-scheme kuralı iş görür.
+const THEMES = [
+  { id: "auto", icon: "contrast", label: "Tema: cihaza uy" },
+  { id: "light", icon: "sun", label: "Tema: açık" },
+  { id: "dark", icon: "moon", label: "Tema: koyu" }
+];
+
+function applyTheme(id) {
+  const theme = THEMES.find((t) => t.id === id) || THEMES[0];
+  const root = document.documentElement;
+  if (theme.id === "auto") root.removeAttribute("data-theme");
+  else root.setAttribute("data-theme", theme.id);
+  localStorage.setItem("tasu.theme", theme.id);
+
+  const button = $("#btn-theme");
+  if (button) {
+    button.innerHTML = ICON[theme.icon];
+    button.title = theme.label;
+    button.setAttribute("aria-label", theme.label);
+    button.dataset.theme = theme.id;
+  }
+  return theme.id;
+}
+
+function wireTheme() {
+  let current = applyTheme(localStorage.getItem("tasu.theme") || "auto");
+  $("#btn-theme").addEventListener("click", () => {
+    const next = THEMES[(THEMES.findIndex((t) => t.id === current) + 1) % THEMES.length];
+    current = applyTheme(next.id);
+    toast(next.label, "ok");
+  });
+}
+
+/* ----------------------------------------------------------------- ayarlar */
+
+// Sürgü 1–1000 arası düz bir aralık olsaydı düşük değerleri seçmek imkânsız
+// olurdu (ilk on pikselde 1–10 Mbps). Bunun yerine kademeler var; son kademe
+// sınırsız demek.
+const BW_STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, BW_FREE];
+
+const bwText = (mbps) => (!mbps || mbps >= BW_FREE ? "sınırsız" : `${mbps} Mbps`);
+
+function bwRow(text, value, onPick) {
+  const start = value ? Math.max(0, BW_STEPS.indexOf(value)) : BW_STEPS.length - 1;
+  const out = el("span", { class: "bw-val" }, bwText(value));
+  const range = el("input", {
+    type: "range", min: 0, max: BW_STEPS.length - 1, step: 1, value: start
+  });
+  range.addEventListener("input", () => {
+    const mbps = BW_STEPS[Number(range.value)];
+    out.textContent = bwText(mbps);
+    onPick(mbps >= BW_FREE ? 0 : mbps);
+  });
+  return el("label", { class: "f" },
+    el("span", {}, text),
+    el("div", { class: "bw" }, range, out));
+}
+
+async function openPrefs() {
+  const draft = bwGet();
+  const choice = await dialog({
+    title: "Ayarlar",
+    build: (box) => {
+      box.append(bwRow("İndirme", draft.down, (v) => { draft.down = v; }));
+      box.append(bwRow("Yükleme", draft.up, (v) => { draft.up = v; }));
+    },
+    buttons: [
+      { label: "Vazgeç", value: null },
+      { label: "Kaydet", kind: "primary", value: "save" }
+    ]
+  });
+  if (choice !== "save") return;
+  const saved = bwSet(draft.down, draft.up);
+  toast(`İndirme ${bwText(saved.down)} · yükleme ${bwText(saved.up)}`, "ok");
 }
 
 /* ------------------------------------------------------------------ açılış */
@@ -210,6 +359,12 @@ function wireShell() {
 
   $("#btn-drives").addEventListener("click", openDrawer);
   $(".brand").addEventListener("click", backToChooser);
+  wireTheme();
+
+  // Çerez her istekte gidiyor; sekme açılır açılmaz yerinde olsun.
+  bwCookie();
+  $("#btn-prefs").innerHTML = ICON.gauge;
+  $("#btn-prefs").addEventListener("click", openPrefs);
 
   $("#btn-add").addEventListener("click", () => openUpload([], reloadAll));
 
@@ -256,6 +411,15 @@ function wireShell() {
     if (S.view === target) return;
     setView(target, dx < 0 ? "right" : "left");
   }, { passive: true });
+
+  // Dynamic Island / durum çubuğu dokunuşu. iOS'un "başa dön" davranışı
+  // WebView'ın kendi kaydırıcısına gider; asıl kaydırıcı ise `.stage` olduğu
+  // için dokunuş hiçbir şey yapmıyordu. Sarmalayıcı bunu çağırıyor.
+  window.tasuScrollTop = () => {
+    const drawer = $("#drive-drawer");
+    const target = drawer.hidden ? stage : drawer;
+    target.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   // Geri tuşu görüntüleyiciyi kapatsın, sayfadan çıkmasın.
   window.addEventListener("popstate", () => { if (isOpen()) closeViewer(); });

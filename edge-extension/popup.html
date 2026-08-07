@@ -19,52 +19,105 @@
       </header>
 
       <details class="site" open>
-        <summary>Redgifs</summary>
+        <summary>Yinelenen sekmeler</summary>
         <div class="site-body">
-          <label class="row">
-            <span>
-              <strong>Right Shift ile indir</strong>
-              <small>Sağ Shift'e basınca ekrandaki videoyu indirir</small>
-            </span>
-            <input type="checkbox" data-setting="rightShiftDownload">
-          </label>
-
-          <label class="row">
-            <span>
-              <strong>Profil fotoğrafı indirme</strong>
-              <small>Profil avatarının üstüne gelince indirme butonu çıkar</small>
-            </span>
-            <input type="checkbox" data-setting="redgifsAvatarDownload">
-          </label>
-
-          <label class="row" id="ripsnipRow">
-            <span>
-              <strong>Ripsnip açıksa onu kullan</strong>
-              <small id="ripsnipHint">Kapalıysa CDN/Redgifs medya çözümü kullanılır</small>
-            </span>
-            <input type="checkbox" data-setting="ripsnipWhenOpen">
-          </label>
+          <p class="dupe-hint">Açık sekmelerde birden çok kez açılmış <strong>aynı bağlantıları</strong> bulur. Aynı profilin farklı gönderileri sayılmaz — yalnız birebir aynı adres.</p>
+          <div class="button-row">
+            <button id="dupeScan" class="secondary-action" type="button">Açık sekmeleri tara</button>
+            <button id="dupeCloseAll" class="secondary-action" type="button" hidden>Tüm fazlalıkları kapat</button>
+          </div>
+          <small id="dupeStatus" class="folder-status"></small>
+          <div id="dupeList" class="dupe-list"></div>
         </div>
       </details>
 
-      <details class="site">
-        <summary>Reddit</summary>
+      <details class="site" open>
+        <summary>Sunucu / Bulut</summary>
         <div class="site-body">
+          <label class="stack">
+            <span>
+              <strong>Worker adresi</strong>
+              <small>Ör. https://arsiv-adin.workers.dev — iOS'takiyle aynı</small>
+            </span>
+            <input class="text-input wide" type="text" data-setting="cloudBase" placeholder="https://…workers.dev" spellcheck="false">
+          </label>
+
+          <label class="stack">
+            <span>
+              <strong>Jeton (ARCHIVE_TOKEN)</strong>
+              <small>Google girişi kullanacaksan boş bırak</small>
+            </span>
+            <input class="text-input wide" type="password" data-setting="cloudToken" placeholder="Bearer jeton" spellcheck="false" autocomplete="off">
+          </label>
+
+          <div class="button-row">
+            <button id="cloudGoogle" class="secondary-action" type="button">Google ile bağlan</button>
+            <button id="cloudTest" class="secondary-action" type="button">Bağlantıyı sına</button>
+          </div>
+          <small id="cloudStatus" class="folder-status"></small>
+
           <label class="row">
             <span>
-              <strong>Görselleri indirme</strong>
-              <small>Reddit görsel postları için</small>
+              <strong>İndirilenler nereye</strong>
+              <small>Yerel: diske · Sunucu: buluta · İkisi: ikisine de</small>
             </span>
-            <input type="checkbox" data-setting="redditImages">
+            <select data-setting="cloudDestination">
+              <option value="local">Yerel</option>
+              <option value="cloud">Sunucu</option>
+              <option value="both">İkisi</option>
+            </select>
           </label>
 
           <label class="row">
             <span>
-              <strong>Profil resimlerinde buton gizle</strong>
-              <small>Reddit avatarlarını dışarıda bırakır</small>
+              <strong>İndirme hızı sınırı</strong>
+              <small>Sunucudan çekerken</small>
             </span>
-            <input type="checkbox" data-setting="hideRedditProfileAvatars">
+            <select data-setting="cloudBwDown">
+              <option value="0">Sınırsız</option>
+              <option value="1">1 Mbps</option>
+              <option value="2">2 Mbps</option>
+              <option value="5">5 Mbps</option>
+              <option value="10">10 Mbps</option>
+              <option value="20">20 Mbps</option>
+              <option value="50">50 Mbps</option>
+              <option value="100">100 Mbps</option>
+              <option value="200">200 Mbps</option>
+              <option value="500">500 Mbps</option>
+            </select>
           </label>
+
+          <label class="row">
+            <span>
+              <strong>Yükleme hızı sınırı</strong>
+              <small>Buluta yüklerken</small>
+            </span>
+            <select data-setting="cloudBwUp">
+              <option value="0">Sınırsız</option>
+              <option value="1">1 Mbps</option>
+              <option value="2">2 Mbps</option>
+              <option value="5">5 Mbps</option>
+              <option value="10">10 Mbps</option>
+              <option value="20">20 Mbps</option>
+              <option value="50">50 Mbps</option>
+              <option value="100">100 Mbps</option>
+              <option value="200">200 Mbps</option>
+              <option value="500">500 Mbps</option>
+            </select>
+          </label>
+
+          <label class="row">
+            <span>
+              <strong>Listeleri eşitle</strong>
+              <small>Telefon/web listelerini arşiv panelinde göster</small>
+            </span>
+            <input type="checkbox" data-setting="cloudListSync">
+          </label>
+
+          <div class="button-row">
+            <button id="openArchive" class="secondary-action" type="button">Arşivi aç</button>
+            <button id="cloudSyncLists" class="secondary-action" type="button">Şimdi eşitle</button>
+          </div>
         </div>
       </details>
 
@@ -96,6 +149,19 @@
               <small>Profil önizlemelerini atlar; post içindeki gerçek ekleri kullanıcı adına göre klasörler</small>
             </span>
             <input type="checkbox" data-setting="coomerButtons">
+          </label>
+        </div>
+      </details>
+
+      <details class="site">
+        <summary>OnlyFans</summary>
+        <div class="site-body">
+          <label class="row">
+            <span>
+              <strong>İndirme butonu</strong>
+              <small>Post/akış görselleri ve videoları (HLS); medyanın üstünde buton, kullanıcı adına göre klasörler. Mesajlar hariç.</small>
+            </span>
+            <input type="checkbox" data-setting="onlyfansButtons">
           </label>
         </div>
       </details>
@@ -181,6 +247,7 @@
       <button id="reset" type="button">Varsayılana dön</button>
     </main>
     <script src="common/settings.js"></script>
+    <script src="common/cloud.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

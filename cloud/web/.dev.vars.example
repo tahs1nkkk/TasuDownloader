@@ -5,7 +5,7 @@
 GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=GOCSPX-xxxxx
 # Siteye girebilecek e-posta(lar); virgülle ayır
-ALLOWED_EMAIL=lsatvofficial@gmail.com
+ALLOWED_EMAIL=you@example.com
 # Oturum çerezini imzalayan gizli anahtar (rastgele üret)
 SESSION_SECRET=rastgele-uzun-bir-deger
 

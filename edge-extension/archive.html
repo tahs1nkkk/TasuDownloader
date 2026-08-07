@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="archive.css">
+    <title>Tasu Arşiv</title>
+  </head>
+  <body>
+    <div class="stickyhead">
+      <header class="topbar">
+        <div class="brand">
+          <img src="icon-32.png" alt="" aria-hidden="true">
+          <div>
+            <h1>Arşiv</h1>
+            <span id="conn" class="conn">…</span>
+          </div>
+        </div>
+        <div class="actions">
+          <button id="refresh" type="button" title="Yenile" aria-label="Yenile">↻</button>
+          <button id="openSite" type="button">Sitede aç</button>
+        </div>
+      </header>
+
+      <nav class="tabs" id="tabs">
+        <button type="button" class="tab on" data-tab="media">Medya</button>
+        <button type="button" class="tab" data-tab="lists">Listeler</button>
+      </nav>
+
+      <div id="siteFilter" class="chips"></div>
+
+      <input id="archiveSearch" class="search" type="search" autocomplete="off"
+             placeholder="Kullanıcı, subreddit ya da isimle ara…" aria-label="Arşivde ara">
+
+      <div id="selbar" class="selbar" hidden>
+        <span id="selCount" class="sel-count">0 seçili</span>
+        <div class="sel-actions">
+          <button id="selDelete" class="sel-btn danger" type="button">Sil</button>
+          <button id="selCancel" class="sel-btn" type="button">Vazgeç</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="banner" class="banner" hidden></div>
+
+    <section id="mediaTab" class="tabpane">
+      <div id="grid" class="grid"></div>
+      <p id="mediaEmpty" class="empty" hidden></p>
+    </section>
+
+    <section id="listsTab" class="tabpane" hidden>
+      <div id="lists" class="lists"></div>
+      <p id="listsEmpty" class="empty" hidden></p>
+    </section>
+
+    <div id="viewer" class="viewer" hidden>
+      <div class="viewer-bar">
+        <button id="viewerDelete" class="viewer-btn danger" type="button" title="Buluttan sil" aria-label="Buluttan sil">🗑</button>
+        <div class="viewer-title">
+          <span id="viewerName" class="v-name"></span>
+          <span id="viewerSub" class="v-sub"></span>
+        </div>
+        <button id="viewerClose" class="viewer-btn" type="button" aria-label="Kapat">✕</button>
+      </div>
+      <button id="viewerPrev" class="viewer-nav prev" type="button" aria-label="Önceki">‹</button>
+      <div id="viewerBody" class="viewer-body"></div>
+      <button id="viewerNext" class="viewer-nav next" type="button" aria-label="Sonraki">›</button>
+    </div>
+
+    <script src="common/settings.js"></script>
+    <script src="common/cloud.js"></script>
+    <script src="archive.js"></script>
+  </body>
+</html>

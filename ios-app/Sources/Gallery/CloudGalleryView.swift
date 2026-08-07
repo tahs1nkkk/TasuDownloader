@@ -163,35 +163,48 @@ private struct CloudTile: View {
     }
 
     var body: some View {
-        ZStack {
-            Rectangle().fill(Color(.secondarySystemBackground))
-            if let source {
-                AsyncImage(url: source, transaction: Transaction(animation: .easeOut(duration: 0.18))) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().scaledToFill()
-                    case .failure:
-                        // Kapağı henüz üretilmemiş video ya da açılamayan görsel.
-                        Image(systemName: file.isVideo ? "film" : "photo")
-                            .font(.system(size: 22))
-                            .foregroundStyle(.secondary)
-                    default:
-                        ProgressView().controlSize(.small)
-                    }
+        // Kare önce kurulur, kapak sonra üstüne bindirilir. Görsel doğrudan
+        // yığının içindeyken ızgaranın satır yüksekliğini resmin kendi oranı
+        // belirliyordu: dikey bir fotoğraf satırı uzatıyor, yataylar yanında
+        // boşluk bırakıyordu. Esnek bir `Color.clear`'ı kareye çekip taşanı
+        // kırpınca her önizleme aynı ölçüde.
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .background(Color(.secondarySystemBackground))
+            .overlay { cover }
+            .overlay(alignment: .bottomTrailing) { playBadge }
+            .clipped()
+            .contentShape(Rectangle())
+    }
+
+    @ViewBuilder private var cover: some View {
+        if let source {
+            AsyncImage(url: source, transaction: Transaction(animation: .easeOut(duration: 0.18))) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFill()
+                case .failure:
+                    // Kapağı henüz üretilmemiş video ya da açılamayan görsel.
+                    Image(systemName: file.isVideo ? "film" : "photo")
+                        .font(.system(size: 22))
+                        .foregroundStyle(.secondary)
+                default:
+                    ProgressView().controlSize(.small)
                 }
             }
-            if file.isVideo {
-                Image(systemName: "play.fill")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
-                    .padding(7)
-                    .background(.black.opacity(0.42), in: Circle())
-                    .shadow(radius: 4)
-            }
         }
-        .frame(maxWidth: .infinity)
-        .aspectRatio(1, contentMode: .fit)
-        .clipped()
+    }
+
+    @ViewBuilder private var playBadge: some View {
+        if file.isVideo {
+            Image(systemName: "play.fill")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(6)
+                .background(.black.opacity(0.45), in: Circle())
+                .padding(5)
+                .shadow(radius: 4)
+        }
     }
 }
 

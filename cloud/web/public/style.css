@@ -13,12 +13,22 @@
 :root {
   color-scheme: dark;
 
+  /* Yüzey tonlarının hepsi bu üç sayıdan türüyor: koyu temada beyaz, açık
+   * temada koyu mürekkep. Tek değişkeni çevirince bütün hover'lar, ayraçlar ve
+   * cam yüzeyler birlikte dönüyor. */
+  --ink: 255, 255, 255;
+
   --bg: #08070a;
   --surface: rgba(21, 19, 26, .78);
   --surface-solid: #15131a;
   --raised: rgba(255, 255, 255, .06);
   --line: rgba(255, 255, 255, .10);
   --line-strong: rgba(255, 255, 255, .18);
+  --topbar: linear-gradient(180deg, rgba(8,7,10,.92), rgba(8,7,10,.55));
+  --dock: rgba(18, 16, 23, .82);
+  --sheet: rgba(20, 18, 25, .96);
+  --tabs-fade: linear-gradient(180deg, rgba(8,7,10,.96) 62%, transparent);
+  --shadow: rgba(0, 0, 0, .55);
 
   --text: #f5f1ea;
   --text-dim: #a49dae;
@@ -45,6 +55,54 @@
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
 }
+
+/* Açık tema. Varsayılan "cihaza uy": işletim sistemi açık moddaysa site de
+ * açık gelir. Üst çubuktaki düğme bunu elle kilitleyebilir — data-theme="dark"
+ * varken sistem tercihi hiç dinlenmez, çünkü kullanıcının açık seçimi
+ * cihazınkinden üstün olmalı. */
+/* Aynı token kümesi iki tetikleyiciyle: sistem tercihi ve elle seçim. CSS'te
+ * "şu ya da bu" diye tek yere yazmanın yolu yok, blok iki kez duruyor. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --ink: 24, 18, 32;
+    --bg: #faf7f2;
+    --surface: rgba(255, 255, 255, .78);
+    --surface-solid: #ffffff;
+    --raised: rgba(24, 18, 32, .05);
+    --line: rgba(24, 18, 32, .12);
+    --line-strong: rgba(24, 18, 32, .24);
+    --topbar: linear-gradient(180deg, rgba(250,247,242,.94), rgba(250,247,242,.6));
+    --dock: rgba(255, 255, 255, .88);
+    --sheet: rgba(255, 255, 255, .97);
+    --tabs-fade: linear-gradient(180deg, rgba(250,247,242,.97) 62%, transparent);
+    --shadow: rgba(40, 30, 60, .22);
+    --text: #1b1622;
+    --text-dim: #574f63;
+    --text-faint: #857c94;
+  }
+  :root:not([data-theme="dark"]) .aura { opacity: .3; }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --ink: 24, 18, 32;
+  --bg: #faf7f2;
+  --surface: rgba(255, 255, 255, .78);
+  --surface-solid: #ffffff;
+  --raised: rgba(24, 18, 32, .05);
+  --line: rgba(24, 18, 32, .12);
+  --line-strong: rgba(24, 18, 32, .24);
+  --topbar: linear-gradient(180deg, rgba(250,247,242,.94), rgba(250,247,242,.6));
+  --dock: rgba(255, 255, 255, .88);
+  --sheet: rgba(255, 255, 255, .97);
+  --tabs-fade: linear-gradient(180deg, rgba(250,247,242,.97) 62%, transparent);
+  --shadow: rgba(40, 30, 60, .22);
+  --text: #1b1622;
+  --text-dim: #574f63;
+  --text-faint: #857c94;
+}
+:root[data-theme="light"] .aura { opacity: .3; }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -80,9 +138,9 @@ button { font-family: inherit; }
 .grow { flex: 1 1 auto; min-width: 0; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 99px;
+::-webkit-scrollbar-thumb { background: rgba(var(--ink),.12); border-radius: 99px;
   border: 3px solid transparent; background-clip: padding-box; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.22); background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: rgba(var(--ink),.22); background-clip: padding-box; }
 ::-webkit-scrollbar-track { background: transparent; }
 
 /* ======================================================== 1. kapı (chooser) */
@@ -111,7 +169,7 @@ button { font-family: inherit; }
   linear-gradient(200deg, #1c0f1a, #08070a 70%); }
 .half:hover::before, .half:focus-visible::before { transform: scale(1); opacity: .92; }
 
-.half-lists { border-right: 1px solid rgba(255,255,255,.07); }
+.half-lists { border-right: 1px solid rgba(var(--ink),.07); }
 
 .half-inner {
   position: relative; z-index: 1; height: 100%;
@@ -121,7 +179,7 @@ button { font-family: inherit; }
 .half:hover .half-inner { transform: translateY(-6px); }
 
 .half-icon { width: 58px; height: 58px; display: grid; place-items: center; border-radius: 20px;
-  background: rgba(255,255,255,.07); border: 1px solid var(--line); margin-bottom: 8px; }
+  background: rgba(var(--ink),.07); border: 1px solid var(--line); margin-bottom: 8px; }
 .half-icon svg { width: 28px; height: 28px; }
 .half-lists .half-icon { color: var(--sky); box-shadow: 0 14px 40px -18px var(--sky); }
 .half-media .half-icon { color: var(--pink); box-shadow: 0 14px 40px -18px var(--pink); }
@@ -129,12 +187,12 @@ button { font-family: inherit; }
 .half-title { font-size: 27px; font-weight: 700; letter-spacing: -.02em; }
 .half-sub { font-size: 13px; color: var(--text-dim); }
 .half-count { margin-top: 10px; font-size: 12px; font-weight: 600; letter-spacing: .04em;
-  padding: 4px 12px; border-radius: 99px; background: rgba(255,255,255,.07);
+  padding: 4px 12px; border-radius: 99px; background: rgba(var(--ink),.07);
   border: 1px solid var(--line); color: var(--text-dim); }
 
 @media (max-width: 640px) {
   .chooser { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
-  .half-lists { border-right: 0; border-bottom: 1px solid rgba(255,255,255,.07); }
+  .half-lists { border-right: 0; border-bottom: 1px solid rgba(var(--ink),.07); }
   .half-title { font-size: 23px; }
 }
 
@@ -147,14 +205,16 @@ button { font-family: inherit; }
 .topbar {
   flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
   height: calc(var(--top) + var(--safe-t)); padding: var(--safe-t) 14px 0;
-  background: linear-gradient(180deg, rgba(8,7,10,.92), rgba(8,7,10,.55));
+  background: var(--topbar);
   backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%);
   border-bottom: 1px solid var(--line);
 }
 
-.brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.brand-dot { width: 11px; height: 11px; border-radius: 4px; background: var(--grad);
-  box-shadow: 0 0 14px -2px var(--accent); flex: 0 0 auto; }
+.brand { display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
+/* Eskiden burada anlamsız bir sarı kare vardı; artık uygulamanın kendi simgesi.
+ * Etrafındaki halo o an açık olan arşivin rengini taşıyor (--dot). */
+.brand-dot { width: 26px; height: 26px; border-radius: 8px; flex: 0 0 auto; display: block;
+  box-shadow: 0 0 16px -4px var(--dot, var(--accent)); }
 .brand-name { font-size: 15.5px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
 .brand-ver { font-size: 11px; color: var(--text-faint); letter-spacing: .04em; }
@@ -166,7 +226,7 @@ button { font-family: inherit; }
   transition: background .18s, color .18s, transform .18s var(--spring);
 }
 .icon-btn svg { width: 18px; height: 18px; }
-.icon-btn:hover { background: rgba(255,255,255,.12); color: var(--text); transform: translateY(-1px); }
+.icon-btn:hover { background: rgba(var(--ink),.12); color: var(--text); transform: translateY(-1px); }
 .icon-btn:active { transform: scale(.94); }
 
 /* "+" → hover'da "+ Dosya Ekle". Genişleme ve renk değişimi aynı anda. */
@@ -196,7 +256,7 @@ button { font-family: inherit; }
   position: fixed; top: 50%; transform: translateY(-50%); z-index: 12;
   width: 40px; height: 92px; display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 4px; cursor: pointer; color: var(--text-dim);
-  background: linear-gradient(90deg, rgba(255,255,255,.09), rgba(255,255,255,.03));
+  background: linear-gradient(90deg, rgba(var(--ink),.09), rgba(var(--ink),.03));
   border: 1px solid var(--line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   transition: width .26s var(--spring), color .2s, background .2s;
 }
@@ -206,7 +266,7 @@ button { font-family: inherit; }
 .edge-left { left: 0; border-left: 0; border-radius: 0 var(--r-lg) var(--r-lg) 0; }
 .edge-right { right: 0; border-right: 0; border-radius: var(--r-lg) 0 0 var(--r-lg); }
 .edge:hover { width: 48px; color: var(--text);
-  background: linear-gradient(90deg, rgba(255,255,255,.16), rgba(255,255,255,.05)); }
+  background: linear-gradient(90deg, rgba(var(--ink),.16), rgba(var(--ink),.05)); }
 .edge[hidden] { display: none; }
 
 /* ------------------------------------------------------------------ sahne */
@@ -231,7 +291,7 @@ button { font-family: inherit; }
   border-radius: 12px; border: 1px solid var(--line); background: var(--raised);
   color: var(--text-faint); transition: border-color .2s, background .2s; }
 .field svg { width: 16px; height: 16px; flex: 0 0 auto; }
-.field:focus-within { border-color: var(--line-strong); background: rgba(255,255,255,.10); }
+.field:focus-within { border-color: var(--line-strong); background: rgba(var(--ink),.10); }
 .field input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: var(--text);
   font: inherit; outline: none; }
 .field input::placeholder { color: var(--text-faint); }
@@ -241,45 +301,69 @@ button { font-family: inherit; }
   border: 1px solid var(--line); background: var(--raised); color: var(--text-dim);
   font: 600 13px/1 inherit; white-space: nowrap;
   transition: background .18s, color .18s, transform .16s var(--spring), border-color .18s; }
-.pill:hover { background: rgba(255,255,255,.12); color: var(--text); transform: translateY(-1px); }
+.pill:hover { background: rgba(var(--ink),.12); color: var(--text); transform: translateY(-1px); }
 .pill:active { transform: scale(.96); }
 .pill.on { background: var(--grad); color: #1a1206; border-color: transparent;
   box-shadow: 0 8px 22px -12px var(--pink); }
 .pill.danger { color: #ffb4bb; border-color: rgba(244,82,95,.32); background: rgba(244,82,95,.14); }
 .pill.danger:hover { background: rgba(244,82,95,.26); color: #fff; }
 
+/* Yalnız ikon taşıyan süzgeç düğmeleri. Kare, çünkü yanlarındaki arama alanı ve
+ * pill'lerle aynı 38px yüksekliği paylaşıyorlar; ne yaptıkları title'da yazıyor. */
+.icon-pill { width: 38px; height: 38px; flex: 0 0 auto; border-radius: 12px; cursor: pointer;
+  display: grid; place-items: center; border: 1px solid var(--line); background: var(--raised);
+  color: var(--text-dim); transition: background .18s, color .18s, border-color .18s; }
+.icon-pill svg { width: 17px; height: 17px; }
+.icon-pill:hover { background: rgba(var(--ink),.12); color: var(--text); }
+.icon-pill:active { transform: scale(.94); }
+.icon-pill.on { background: var(--grad); color: #1a1206; border-color: transparent;
+  box-shadow: 0 8px 22px -12px var(--pink); }
+
 /* ========================================================== site sekmeleri */
 
-/* Her zaman tek satır: sığmazsa yazı kısalır, sekme alta kaymaz. */
+/* Tek satır, alçak bir şerit. Sekmeler eskiden iki kat yüksekti ve ızgaranın
+ * üstünde bir duvar gibi duruyordu; artık ikon + ad yan yana, tek satırda.
+ *
+ * Arka plan sitenin kendi logosu: ::before aynı SVG'yi çok büyütüp bulanıklaştırıyor
+ * (--tab-bg, core.js'te data: URI olarak veriliyor). Gradyan yerine bu, çünkü
+ * "sitenin rengi" zaten logonun içinde ve her sekme kendi rengini taşıyor. */
 .site-tabs {
-  position: sticky; top: 0; z-index: 6; display: flex; gap: 8px; margin: -18px -6px 14px;
-  padding: 14px 6px 12px; background: linear-gradient(180deg, rgba(8,7,10,.96) 62%, transparent);
+  position: sticky; top: 0; z-index: 6; display: flex; gap: 6px; margin: -18px -6px 12px;
+  padding: 8px 6px; background: var(--tabs-fade);
 }
 .site-tab {
   flex: 1 1 0; min-width: 0; position: relative; cursor: pointer; overflow: hidden;
-  border: 1px solid var(--line); border-radius: var(--r-md); padding: 9px 6px 8px;
+  border: 1px solid var(--line); border-radius: var(--r-sm); padding: 0 10px; height: 38px;
   background: var(--surface-solid); color: var(--text-dim);
-  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
   transition: transform .2s var(--spring), border-color .2s, color .2s, box-shadow .2s;
 }
-/* Banner: sitenin kendi rengi, tuşun arkasında yumuşak bir yıkama. */
-.site-tab::before { content: ""; position: absolute; inset: 0; opacity: .3;
-  background: var(--tab-grad, linear-gradient(135deg, #444, #222)); transition: opacity .2s; }
+/* Logonun kendisi, taşacak kadar büyütülüp bulanıklaştırılmış hali. Yakınlaşınca
+ * marka rengi kalıyor ama şekil okunmuyor — istenen tam olarak bu. */
+.site-tab::before {
+  content: ""; position: absolute; inset: -60%; opacity: .34;
+  background: var(--tab-bg, linear-gradient(135deg, #444, #222)) center / 100% 100% no-repeat;
+  filter: blur(18px) saturate(1.7); transition: opacity .2s;
+}
 .site-tab > * { position: relative; z-index: 1; }
-.site-tab:hover { transform: translateY(-2px); color: var(--text); border-color: var(--line-strong); }
-.site-tab:hover::before { opacity: .48; }
-.site-tab.on { color: #fff; border-color: transparent; box-shadow: 0 10px 26px -14px var(--tab-glow, #000); }
-.site-tab.on::before { opacity: 1; }
+.site-tab:hover { color: var(--text); border-color: var(--line-strong); }
+.site-tab:hover::before { opacity: .52; }
+.site-tab.on { color: var(--text); border-color: var(--line-strong);
+  box-shadow: 0 8px 20px -14px var(--tab-glow, #000); }
+.site-tab.on::before { opacity: .85; }
 
-.site-mark { width: 26px; height: 26px; border-radius: 9px; display: grid; place-items: center;
-  background: rgba(0,0,0,.32); font: 800 12px/1 inherit; color: #fff;
-  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
-.site-mark svg { width: 15px; height: 15px; }
-.site-name { font: 700 11.5px/1 inherit; letter-spacing: .02em; max-width: 100%;
+/* Kutu yok: ikon doğrudan zeminin üstünde duruyor ve yazıyla aynı boyda. */
+.site-mark { width: 18px; height: 18px; flex: 0 0 auto; display: grid; place-items: center;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,.45)); }
+.site-mark svg { width: 100%; height: 100%; display: block; }
+.site-name { font: 700 13px/1 inherit; letter-spacing: .01em; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.site-num { font: 600 10px/1 inherit; opacity: .72; }
+.site-num { font: 600 11px/1 inherit; opacity: .66; flex: 0 0 auto; }
 
-@media (max-width: 560px) { .site-name { display: none; } .site-tab { padding: 10px 4px; } }
+@media (max-width: 560px) {
+  .site-name { display: none; }
+  .site-tab { padding: 0 6px; height: 36px; }
+}
 
 /* ============================================================= kategoriler */
 
@@ -288,7 +372,7 @@ button { font-family: inherit; }
   border-radius: 99px; cursor: pointer; font: 600 12.5px/1 inherit; white-space: nowrap;
   border: 1px solid var(--line); background: var(--raised); color: var(--text-dim);
   transition: background .18s, color .18s, transform .16s var(--spring); }
-.cat-chip:hover { transform: translateY(-1px); color: var(--text); background: rgba(255,255,255,.11); }
+.cat-chip:hover { transform: translateY(-1px); color: var(--text); background: rgba(var(--ink),.11); }
 .cat-chip.on { color: #fff; border-color: transparent; }
 .cat-swatch { width: 8px; height: 8px; border-radius: 3px; flex: 0 0 auto; }
 .cat-caret { width: 13px; height: 13px; opacity: .7; transition: transform .22s var(--spring); }
@@ -321,7 +405,7 @@ button { font-family: inherit; }
   border: 1px solid var(--line); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
   transition: transform .22s var(--spring), border-color .2s, box-shadow .22s; }
 .list-card:hover { transform: translateY(-3px); border-color: var(--line-strong);
-  box-shadow: 0 22px 44px -26px #000; }
+  box-shadow: 0 22px 44px -26px var(--shadow); }
 
 .list-banner { position: relative; height: 84px; background: var(--banner, var(--grad));
   background-size: cover; background-position: center; }
@@ -345,21 +429,40 @@ button { font-family: inherit; }
   display: grid; place-items: center; border: 1px solid var(--line); background: var(--raised);
   color: var(--text-dim); transition: background .18s, color .18s; }
 .list-toggle svg { width: 14px; height: 14px; transition: transform .24s var(--spring); }
-.list-toggle:hover { background: rgba(255,255,255,.13); color: var(--text); }
+.list-toggle:hover { background: rgba(var(--ink),.13); color: var(--text); }
 .list-card.collapsed .list-toggle svg { transform: rotate(-90deg); }
+
+.list-del { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 9px; cursor: pointer;
+  display: grid; place-items: center; border: 1px solid var(--line); background: var(--raised);
+  color: var(--text-faint); opacity: 0; transition: opacity .18s, background .18s, color .18s; }
+.list-del svg { width: 14px; height: 14px; }
+.list-card:hover .list-del { opacity: 1; }
+.list-del:hover { background: rgba(244,82,95,.16); border-color: rgba(244,82,95,.5); color: #f4525f; }
 
 .list-body { padding: 0 8px 8px; display: grid; grid-template-rows: 1fr;
   transition: grid-template-rows .28s var(--spring), opacity .2s; }
 .list-card.collapsed .list-body { grid-template-rows: 0fr; opacity: 0; padding-bottom: 0; }
 .list-body > div { overflow: hidden; min-height: 0; }
 
+.list-row { display: flex; align-items: center; gap: 2px; }
+.list-row .list-link { flex: 1 1 auto; min-width: 0; }
 .list-link { display: flex; align-items: center; gap: 9px; padding: 8px 9px; border-radius: 10px;
   text-decoration: none; color: var(--text); transition: background .16s; }
-.list-link:hover { background: rgba(255,255,255,.07); }
-.list-link .dot { width: 7px; height: 7px; border-radius: 99px; flex: 0 0 auto; }
-.list-link .title { flex: 1 1 auto; min-width: 0; font-size: 13px;
+.list-link:hover { background: rgba(var(--ink),.07); }
+.list-link .list-ico { width: 17px; height: 17px; flex: 0 0 auto; display: block; }
+.list-link .list-ico svg { width: 100%; height: 100%; display: block; }
+.list-link .title { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.list-link .title b { font: 600 13px/1.3 inherit;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-link .title small { font-size: 11.5px; color: var(--text-faint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-link .host { font-size: 11px; color: var(--text-faint); flex: 0 0 auto; }
+.list-link-del { flex: 0 0 auto; width: 24px; height: 24px; border-radius: 8px; cursor: pointer;
+  display: grid; place-items: center; border: 0; background: transparent; color: var(--text-faint);
+  opacity: 0; transition: opacity .16s, background .16s, color .16s; }
+.list-link-del svg { width: 13px; height: 13px; }
+.list-row:hover .list-link-del { opacity: .75; }
+.list-link-del:hover { opacity: 1; background: rgba(244,82,95,.16); color: #f4525f; }
 .list-empty { padding: 10px; font-size: 12.5px; color: var(--text-faint); text-align: center; }
 
 /* =================================================================== medya */
@@ -367,17 +470,25 @@ button { font-family: inherit; }
 .media-grid { display: grid; gap: 12px;
   grid-template-columns: repeat(auto-fill, minmax(clamp(140px, 20vw, 220px), 1fr)); }
 
+/* content-visibility: ekran dışındaki kartın içini tarayıcı hiç düzenlemiyor.
+ * contain-intrinsic-size onsuz yapamaz: yoksa görünmeyen kart 0 piksel sayılır
+ * ve kaydırma çubuğu her satırda zıplar. Kart kare olduğu için tek ölçü yeter. */
 .media-card { position: relative; border-radius: var(--r-md); overflow: hidden; cursor: pointer;
   background: #111015; border: 1px solid var(--line); aspect-ratio: 1; padding: 0;
+  content-visibility: auto; contain-intrinsic-size: auto 220px;
   transition: transform .22s var(--spring), border-color .2s, box-shadow .22s,
               opacity .28s ease, scale .28s var(--spring); }
 .media-card:hover { transform: translateY(-3px); border-color: var(--line-strong);
-  box-shadow: 0 22px 42px -24px #000; }
+  box-shadow: 0 22px 42px -24px var(--shadow); }
 /* Silinen kart sayfa yenilenmeden yerinde eriyip gider. */
 .media-card.leaving { opacity: 0; scale: .9; pointer-events: none; }
 
+/* Kapak sürüklenemez ve seçilemez: ızgarada gezinirken parmak/fare altında
+   kayan bir hayalet görüntü kalmasın. */
+.media-card { user-select: none; -webkit-user-select: none; }
 .media-card img, .media-card video { width: 100%; height: 100%; object-fit: cover; display: block;
-  background: #0b0a0e; transition: transform .4s var(--spring); }
+  background: #0b0a0e; transition: transform .4s var(--spring);
+  -webkit-user-drag: none; user-drag: none; pointer-events: none; }
 .media-card:hover img, .media-card:hover video { transform: scale(1.05); }
 .media-card .fallback { width: 100%; height: 100%; display: grid; place-items: center;
   color: var(--text-faint); font-size: 24px; }
@@ -401,20 +512,34 @@ button { font-family: inherit; }
 .play-badge svg { width: 17px; height: 17px; margin-left: 2px; fill: #fff; }
 .media-card:hover .play-badge span { transform: scale(1.12); background: rgba(236,72,153,.55); }
 
-/* Seçim modu */
-.media-card .check { position: absolute; top: 8px; left: 8px; z-index: 2; width: 22px; height: 22px;
-  border-radius: 99px; display: none; place-items: center; border: 2px solid rgba(255,255,255,.85);
-  background: rgba(0,0,0,.4); backdrop-filter: blur(6px); }
-.media-card .check svg { width: 12px; height: 12px; opacity: 0; stroke: #1a1206; }
-body.selecting .media-card .check { display: grid; }
+/* Seçim. Ayrı bir "seçim moduna geç" düğmesi yok: tik her zaman orada, sadece
+ * fareyi kartın üstüne getirene kadar görünmüyor. Bir şey seçilir seçilmez
+ * hepsi görünür kalıyor, yoksa çoklu seçim körlemesine oluyor.
+ * display yerine opacity: görünmezken de tıklanabilir olmalı ki dokunmatikte
+ * ilk temas tiki bulsun. */
+.media-card .check { position: absolute; top: 8px; left: 8px; z-index: 2; width: 24px; height: 24px;
+  border-radius: 99px; display: grid; place-items: center; cursor: pointer; padding: 0;
+  border: 2px solid rgba(255,255,255,.85); background: rgba(0,0,0,.4);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  opacity: 0; transform: scale(.8); transition: opacity .16s, transform .16s var(--spring),
+    background .16s, border-color .16s; }
+.media-card .check svg { width: 13px; height: 13px; opacity: 0; stroke: #1a1206; stroke-width: 3; }
+.media-card:hover .check,
+.media-card:focus-within .check,
+body.selecting .media-card .check { opacity: 1; transform: none; }
+.media-card .check:hover { background: rgba(0,0,0,.62); border-color: #fff; }
 body.selecting .media-card:hover { transform: none; }
 .media-card.picked { border-color: var(--amber);
   box-shadow: 0 0 0 2px var(--amber), 0 0 22px -4px var(--amber); }
 .media-card.picked .check { background: var(--amber); border-color: #fff; }
 .media-card.picked .check svg { opacity: 1; }
 
+/* Sonsuz kaydırmanın tetikleyicisi: ızgaranın son satırından sonra bir tam
+   satır boyu boşluk. Görünür bir şey değil, sadece IntersectionObserver hedefi. */
+.grid-sentinel { grid-column: 1 / -1; height: 1px; }
+
 .skeleton { border-radius: var(--r-md); aspect-ratio: 1; background:
-  linear-gradient(100deg, rgba(255,255,255,.04) 30%, rgba(255,255,255,.10) 50%, rgba(255,255,255,.04) 70%);
+  linear-gradient(100deg, rgba(var(--ink),.04) 30%, rgba(var(--ink),.10) 50%, rgba(var(--ink),.04) 70%);
   background-size: 300% 100%; animation: shimmer 1.4s linear infinite; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 
@@ -427,9 +552,9 @@ body.selecting .media-card:hover { transform: none; }
   position: fixed; left: 50%; transform: translateX(-50%); z-index: 14;
   bottom: calc(16px + var(--safe-b));
   display: flex; align-items: center; gap: 14px; padding: 9px 18px; border-radius: 99px;
-  background: rgba(18,16,23,.82); border: 1px solid var(--line);
+  background: var(--dock); border: 1px solid var(--line);
   backdrop-filter: blur(22px) saturate(160%); -webkit-backdrop-filter: blur(22px) saturate(160%);
-  box-shadow: 0 20px 50px -24px #000; animation: dockIn .3s var(--spring) both;
+  box-shadow: 0 20px 50px -24px var(--shadow); animation: dockIn .3s var(--spring) both;
 }
 @keyframes dockIn { from { opacity: 0; transform: translate(-50%, 14px); } }
 .stats-dock[hidden], .select-bar[hidden] { display: none; }
@@ -453,7 +578,7 @@ body.selecting .media-card:hover { transform: none; }
 .drawer {
   position: fixed; top: 0; bottom: 0; left: 0; z-index: 30; width: min(320px, 86vw);
   padding: calc(20px + var(--safe-t)) 16px calc(20px + var(--safe-b));
-  background: rgba(16,14,20,.94); border-right: 1px solid var(--line);
+  background: var(--sheet); border-right: 1px solid var(--line);
   backdrop-filter: blur(28px) saturate(160%); -webkit-backdrop-filter: blur(28px) saturate(160%);
   overflow-y: auto; animation: drawerIn .3s var(--spring) both;
 }
@@ -467,9 +592,28 @@ body.selecting .media-card:hover { transform: none; }
   border-radius: var(--r-md); border: 1px solid var(--line); background: var(--raised);
   color: var(--text); cursor: pointer; margin-bottom: 8px; font: inherit; text-align: left;
   transition: background .18s, border-color .18s, transform .16s var(--spring); }
-.drive-row:hover { background: rgba(255,255,255,.11); transform: translateX(2px); }
+.drive-row:hover { background: rgba(var(--ink),.11); transform: translateX(2px); }
 .drive-row.on { border-color: transparent;
   background: linear-gradient(100deg, rgba(245,158,11,.22), rgba(236,72,153,.18)); }
+
+/* Kapak görseli: satırın sağ tarafında durur, sola doğru siyaha erir. Yazının
+   olduğu tarafı hiç kirletmediği için her görselle okunur kalıyor. */
+.drive-row.has-art { position: relative; overflow: hidden; isolation: isolate; }
+.drive-row.has-art::before {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background: var(--art) center / cover no-repeat;
+  -webkit-mask-image: linear-gradient(90deg, transparent 8%, #000 78%);
+  mask-image: linear-gradient(90deg, transparent 8%, #000 78%);
+  opacity: .55;
+}
+.drive-row.has-art::after {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background: linear-gradient(90deg, rgba(6,5,9,.96) 22%, rgba(6,5,9,.35) 72%, transparent);
+}
+.drive-row.has-art .drive-meta b { text-shadow: 0 1px 4px rgba(0,0,0,.7); }
+
+/* Aynı ölçüde ama kırmızı değil: düzenleme yıkıcı bir eylem değil. */
+.drive-edit:hover { background: rgba(var(--ink),.16); color: var(--text); }
 .drive-mark { width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center;
   font: 800 13px/1 inherit; color: #14100a; flex: 0 0 auto; }
 .drive-meta { flex: 1 1 auto; min-width: 0; }
@@ -501,7 +645,7 @@ body.selecting .media-card:hover { transform: none; }
   border: 1px solid var(--line); background: var(--raised); color: var(--text);
   font: 600 13px/1 inherit; transition: background .18s, transform .16s var(--spring), box-shadow .18s; }
 .vbtn svg { width: 15px; height: 15px; }
-.vbtn:hover { background: rgba(255,255,255,.14); transform: translateY(-1px); }
+.vbtn:hover { background: rgba(var(--ink),.14); transform: translateY(-1px); }
 .vbtn:active { transform: scale(.96); }
 .vbtn.primary { background: var(--grad); color: #1a1206; border-color: transparent;
   box-shadow: 0 10px 24px -12px var(--pink); }
@@ -509,9 +653,14 @@ body.selecting .media-card:hover { transform: none; }
 .vbtn.danger:hover { background: rgba(244,82,95,.3); color: #fff; }
 @media (max-width: 620px) { .vbtn .vlabel { display: none; } .vbtn { padding: 0 11px; } }
 
-.viewer-stage { flex: 1 1 auto; min-height: 0; position: relative; display: grid; place-items: center;
+/* Sahne tek hücrelik bir ızgara: satır boyu kesin (kapsayıcı yüksekliği), bu
+ * yüzden içindeki %100'ler gerçekten çözülüyor. Eskiden uzun/dikey medya
+ * kutudan taşıyordu, çünkü yüzde bir yerde belirsiz kalıyordu. */
+.viewer-stage { flex: 1 1 auto; min-height: 0; position: relative; display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center;
   padding: 0 14px calc(14px + var(--safe-b)); overflow: hidden; }
-.viewer-stage img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: var(--r-md);
+.viewer-stage img { max-width: 100%; max-height: 100%; width: auto; height: auto;
+  object-fit: contain; border-radius: var(--r-md);
   transition: transform .18s ease-out; cursor: zoom-in; touch-action: none; }
 .viewer-stage img.zoomed { cursor: grab; transition: none; }
 .viewer-stage img.zoomed:active { cursor: grabbing; }
@@ -528,9 +677,14 @@ body.selecting .media-card:hover { transform: none; }
 
 /* --------------------------------------------------------------- oynatıcı */
 
-.player { position: relative; max-width: 100%; max-height: 100%; display: flex; }
-.player video { max-width: 100%; max-height: 100%; border-radius: var(--r-md); background: #000;
-  display: block; }
+/* Oynatıcı sahneyi tamamen kaplıyor, video ortada sığdırılıyor. Kutuyu videoya
+ * göre daraltmak yerine tersini yapmanın sebebi: kutu daralırsa videonun
+ * yüksekliği belirsiz kalıyor ve dikey videolar ekrandan taşıyor. Denetimler
+ * de böylece her zaman ekranın altında, sabit bir yerde duruyor. */
+.player { position: relative; width: 100%; height: 100%; min-height: 0;
+  display: grid; place-items: center; }
+.player video { max-width: 100%; max-height: 100%; width: auto; height: auto;
+  object-fit: contain; border-radius: var(--r-md); background: #000; display: block; }
 
 .pl-controls { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
   padding: 40px 14px 12px; border-radius: 0 0 var(--r-md) var(--r-md);
@@ -573,8 +727,8 @@ body.selecting .media-card:hover { transform: none; }
 .dialog-host.on { display: grid; animation: fadeIn .18s ease both; }
 
 .dialog { width: min(460px, 100%); max-height: 86vh; overflow-y: auto; border-radius: var(--r-xl);
-  background: rgba(20,18,25,.96); border: 1px solid var(--line-strong); padding: 24px;
-  box-shadow: 0 40px 90px -40px #000; animation: dlgIn .26s var(--spring) both; }
+  background: var(--sheet); border: 1px solid var(--line-strong); padding: 24px;
+  box-shadow: 0 40px 90px -40px var(--shadow); animation: dlgIn .26s var(--spring) both; }
 @keyframes dlgIn { from { opacity: 0; transform: translateY(14px) scale(.97); } }
 .dialog h3 { margin: 0 0 6px; font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
 .dialog > p { margin: 0 0 18px; font-size: 13.5px; color: var(--text-dim); line-height: 1.5; }
@@ -584,9 +738,22 @@ body.selecting .media-card:hover { transform: none; }
   text-transform: uppercase; color: var(--text-faint); margin-bottom: 6px; }
 .dialog input[type=text], .dialog input[type=number], .dialog input[type=url], .dialog select {
   width: 100%; height: 40px; padding: 0 13px; border-radius: 12px; border: 1px solid var(--line);
-  background: rgba(255,255,255,.06); color: var(--text); font: inherit; outline: none; }
+  background: rgba(var(--ink),.06); color: var(--text); font: inherit; outline: none; }
+/* background-color, kısayol değil: kısayol aşağıdaki ok simgesini de siliyordu. */
 .dialog input:focus, .dialog select:focus { border-color: var(--line-strong);
-  background: rgba(255,255,255,.1); }
+  background-color: rgba(var(--ink),.1); }
+/* Açılır listenin kendisini tarayıcı çiziyor ve arka planı kendi temasından
+ * alıyordu: koyu temada beyaz zemine beyaz yazı, yani hiçbir seçenek okunmuyordu.
+ * Seçenekleri düz renge sabitlemek tek çözüm — buradaki iki renk de temayla dönüyor. */
+.dialog select { -webkit-appearance: none; appearance: none; padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a49dae' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 11px center; background-size: 15px; }
+.dialog select option, .dialog select optgroup {
+  background: var(--surface-solid); color: var(--text); }
+/* İki durumlu seçici (renk / görsel). Radyo düğmesi görünmüyor, iş gören şey
+   düğmelerin kendisi; seçili olan .on ile ayrılıyor. */
+.dialog .seg { display: flex; gap: 6px; margin-bottom: 10px; }
+.dialog .seg .pill { height: 32px; padding: 0 14px; font-size: 12.5px; }
 .dialog .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
 .dialog .swatch { width: 34px; height: 34px; border-radius: 11px; cursor: pointer;
   border: 2px solid transparent; transition: transform .16s var(--spring); }
@@ -598,21 +765,39 @@ body.selecting .media-card:hover { transform: none; }
   border: 2px solid transparent; background: #111015; padding: 0; }
 .dialog .picker img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .dialog .picker button.on { border-color: var(--amber); }
+.dialog .picker .picker-none { display: grid; place-items: center; background: var(--raised);
+  color: var(--text-faint); font: 600 12px/1 inherit; }
 .dialog .tree { max-height: 260px; overflow-y: auto; margin: 0 0 6px; }
 .dialog .tree button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px 12px;
   border-radius: 11px; border: 1px solid var(--line); background: var(--raised); color: var(--text);
   cursor: pointer; font: inherit; text-align: left; margin-bottom: 6px; }
-.dialog .tree button:hover { background: rgba(255,255,255,.12); }
+.dialog .tree button:hover { background: rgba(var(--ink),.12); }
 .dialog .tree button.child { margin-left: 18px; }
 .dialog .link-out { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
 .dialog .link-out input { flex: 1 1 auto; font: 500 12px/1 ui-monospace, Menlo, monospace; }
+/* Bant genişliği sürgüsü. Değer sağda sabit genişlikte duruyor ki sürgüyü
+   çekerken satır sağa sola oynamasın. */
+.dialog .bw { display: flex; align-items: center; gap: 12px; }
+.dialog .bw-val { flex: 0 0 auto; width: 78px; text-align: right; font-size: 13px;
+  font-weight: 600; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.dialog input[type=range] { flex: 1 1 auto; min-width: 0; height: 26px; margin: 0;
+  -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
+.dialog input[type=range]::-webkit-slider-runnable-track { height: 5px; border-radius: 99px;
+  background: rgba(var(--ink),.14); }
+.dialog input[type=range]::-moz-range-track { height: 5px; border-radius: 99px;
+  background: rgba(var(--ink),.14); }
+.dialog input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none;
+  width: 17px; height: 17px; margin-top: -6px; border-radius: 99px; border: 0;
+  background: var(--grad); box-shadow: 0 2px 8px -2px var(--shadow); }
+.dialog input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border: 0;
+  border-radius: 99px; background: var(--amber); }
 
 .toast-host { position: fixed; left: 50%; transform: translateX(-50%); z-index: 60;
   bottom: calc(78px + var(--safe-b)); display: flex; flex-direction: column; gap: 8px;
   align-items: center; pointer-events: none; width: min(440px, calc(100vw - 24px)); }
 .toast { display: flex; align-items: center; gap: 9px; padding: 11px 16px; border-radius: 14px;
-  background: rgba(24,21,30,.95); border: 1px solid var(--line-strong); color: var(--text);
-  font-size: 13px; font-weight: 500; box-shadow: 0 18px 40px -20px #000;
+  background: var(--sheet); border: 1px solid var(--line-strong); color: var(--text);
+  font-size: 13px; font-weight: 500; box-shadow: 0 18px 40px -20px var(--shadow);
   backdrop-filter: blur(18px); animation: toastIn .28s var(--spring) both; max-width: 100%; }
 .toast.out { animation: toastOut .22s ease forwards; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(12px) scale(.96); } }
@@ -659,10 +844,31 @@ html.ios .stats-dock,
 html.ios .select-bar,
 html.ios .drawer { backdrop-filter: blur(30px) saturate(180%);
   -webkit-backdrop-filter: blur(30px) saturate(180%); }
+/* Site sekmeleri telefonda yapışkan değil. 38px'lik şerit küçük bir ekranda
+ * ızgaranın üstünde sürekli duvar gibi duruyordu; artık sayfayla birlikte yukarı
+ * çıkıyor, geri kaydırınca dönüyor. */
+html.ios .site-tabs { position: static; background: none; padding: 0; margin: -6px 0 12px; }
+
+/* Bilgi şeridi ekranın tam altına oturur. Ortalanmış yüzen hap, telefonda
+ * ızgaranın ortasında asılı kalmış gibi görünüyordu; alt kenara yapışınca hem
+ * daha geniş hem de yolun dışında. */
+html.ios .stats-dock {
+  left: 0; right: 0; bottom: 0; width: 100%; transform: none; animation: none;
+  justify-content: center; border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0;
+  padding: 9px 14px calc(9px + var(--safe-b));
+}
+/* Seçim çubuğu o şeridin üstünde durur, üstüne değil. */
+html.ios .select-bar { bottom: calc(54px + var(--safe-b)); }
+
+/* Telefonda üç sütun: 140px'lik taban tek elde iki kocaman kart bırakıyordu. */
+html.ios .media-grid { gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+html.ios .stage { padding-top: 12px; }
+
 html.ios .list-card, html.ios .media-card { transition: opacity .28s ease, scale .28s var(--spring); }
 html.ios .media-card:hover, html.ios .list-card:hover { transform: none; box-shadow: none; }
 html.ios .media-card:hover img, html.ios .media-card:hover video { transform: none; }
-html.ios .list-edit { opacity: 1; }
+html.ios .list-edit, html.ios .list-del { opacity: 1; }
+html.ios .list-link-del { opacity: .75; }
 html.ios .aura { animation: none; }
 html.ios input, html.ios select { font-size: 16px; } /* iOS otomatik yakınlaştırmasını keser */
 
@@ -670,7 +876,8 @@ html.ios input, html.ios select { font-size: 16px; } /* iOS otomatik yakınlaşt
   .media-card:hover { transform: none; box-shadow: none; }
   .media-card:hover img, .media-card:hover video { transform: none; }
   .media-size { opacity: .85; }
-  .list-edit { opacity: 1; }
+  .list-edit, .list-del { opacity: 1; }
+  .list-link-del { opacity: .75; }
 }
 
 @media (prefers-reduced-motion: reduce) {

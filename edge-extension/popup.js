@@ -2,8 +2,6 @@ const { SETTINGS_KEY, DEFAULT_SETTINGS } = globalThis.RG_SETTINGS;
 
 const controls = [...document.querySelectorAll("[data-setting]")];
 const buttonSizeValue = document.getElementById("buttonSizeValue");
-const ripsnipRow = document.getElementById("ripsnipRow");
-const ripsnipHint = document.getElementById("ripsnipHint");
 const folderStatus = document.getElementById("folderStatus");
 
 function readSettings() {
@@ -18,14 +16,6 @@ function writeSettings(settings) {
   settings.feedButtons = true;
   settings.profileButtons = true;
   return chrome.storage.local.set({ [SETTINGS_KEY]: settings });
-}
-
-function ripsnipTabOpen() {
-  return new Promise((resolve) => {
-    chrome.tabs.query({ url: ["https://ripsnip.com/*", "https://www.ripsnip.com/*"] }, (tabs) => {
-      resolve(Boolean((tabs || []).length));
-    });
-  });
 }
 
 function activeTab() {
@@ -118,6 +108,47 @@ async function resetScrolllerHiddenElements() {
   status.dataset.level = "done";
 }
 
+function setCloudStatus(text, level = "idle") {
+  const el = document.getElementById("cloudStatus");
+  if (!el) return;
+  el.textContent = text || "";
+  el.dataset.level = level;
+}
+
+// Worker'ı sekmede açar: giriş yapılmamışsa Google giriş sayfası gelir, sonra
+// eklenti fetch'i o kökene ait oturum çerezini taşır.
+async function connectWithGoogle() {
+  const s = await readSettings();
+  const base = globalThis.RG_CLOUD.normalizeBase(s.cloudBase);
+  if (!base) { setCloudStatus("Önce Worker adresini gir", "error"); return; }
+  chrome.tabs.create({ url: `${base}/` });
+  setCloudStatus("Site açıldı — Google ile giriş yap. Eklenti içi yükleme/ızgara için jeton gerekir.", "idle");
+}
+
+async function testCloudConnection() {
+  const s = await readSettings();
+  setCloudStatus("Deneniyor…", "idle");
+  const r = await globalThis.RG_CLOUD.checkConnection(s);
+  if (r.ok) {
+    setCloudStatus(`Bağlı ✓ (${r.mode === "token" ? "jeton" : "Google"}${r.version ? `, v${r.version}` : ""})`, "done");
+  } else {
+    setCloudStatus(r.error || "Bağlanamadı", "error");
+  }
+}
+
+async function previewCloudLists() {
+  const s = await readSettings();
+  if (!globalThis.RG_CLOUD.canUseApi(s)) { setCloudStatus("Adres + jeton gir (listeler jeton ister)", "error"); return; }
+  setCloudStatus("Listeler çekiliyor…", "idle");
+  try {
+    const data = await globalThis.RG_CLOUD.getLists(s);
+    const n = data && Array.isArray(data.lists) ? data.lists.length : 0;
+    setCloudStatus(n ? `Bulutta ${n} liste var. Yönetmek için "Arşivi aç".` : "Bulutta liste yok.", "done");
+  } catch (e) {
+    setCloudStatus(e.message || String(e), "error");
+  }
+}
+
 function sanitizePath(value) {
   return String(value || "RedGifsDownloader")
     .replace(/[\\/:*?"<>|]+/g, "-")
@@ -199,23 +230,6 @@ async function render(settings) {
   for (const control of controls) renderControl(control, settings);
   buttonSizeValue.textContent = `${settings.buttonSize || DEFAULT_SETTINGS.buttonSize}px`;
   renderFolders(settings);
-
-  const open = await ripsnipTabOpen();
-  const ripsnipToggle = document.querySelector('[data-setting="ripsnipWhenOpen"]');
-  ripsnipToggle.disabled = !open;
-  if (!open) ripsnipToggle.checked = false;
-  ripsnipRow.classList.toggle("is-disabled", !open);
-
-  if (open) {
-    ripsnipHint.textContent = "Açık sekme algılandı; istersen Ripsnip üzerinden indirir";
-  } else {
-    ripsnipHint.innerHTML = '<a href="#" id="openRipsnip">Önce siteyi açmanız lazım</a>; kapalıyken CDN kullanılır';
-    document.getElementById("openRipsnip").addEventListener("click", (event) => {
-      event.preventDefault();
-      chrome.tabs.create({ url: "https://ripsnip.com/" });
-      window.close();
-    });
-  }
 }
 
 async function updateSetting(control) {
@@ -235,6 +249,158 @@ async function updateSetting(control) {
 
   await writeSettings(current);
   await render(current);
+}
+
+/* -------------------------------------------------- yinelenen açık sekmeler */
+// Kullanıcı beğendiği gönderileri sekme sekme açıyor ama aynısını farkında
+// olmadan birkaç kez açabiliyor. Burası açık sekmeleri tarar ve BİREBİR AYNI
+// bağlantıyı birden çok kez bulduğunda fazlalıkları kapatmayı önerir. Aynı
+// profilin farklı gönderileri değil — yalnız aynı adres.
+
+// Yalnız bizim sitelerimiz taranır; ölçüt cloud/web ve weblink ile aynı.
+const DUPE_SITE_HINTS = [
+  [/redgifs\./i, "RedGifs"],
+  [/reddit\.|redd\.it/i, "Reddit"],
+  [/instagram\./i, "Instagram"],
+  [/scrolller\./i, "Scrolller"],
+  [/coomer\.|kemono\./i, "Coomer"]
+];
+
+// www/m/old/new/np ön ekleri atılır (aynı gönderi eski/yeni Reddit'te aynı
+// sayılsın). "i." bilerek atılmaz: i.redd.it görsel konağı, redd.it kısa
+// bağlantı alanıdır — karışmasınlar.
+function dupeCanonHost(hostname) {
+  return String(hostname || "").toLowerCase().replace(/^(www|m|old|new|np)\./, "");
+}
+
+function dupeSiteName(host) {
+  for (const [pattern, name] of DUPE_SITE_HINTS) if (pattern.test(host)) return name;
+  return "";
+}
+
+// Bir sekmenin "aynılık" anahtarı: konak + yol (sorgu ve çapa yok, sondaki
+// eğik çizgi kırpılır). İzleme parametreleri ya da aynı gönderinin farklı
+// karesi (?img_index) aynı sayılır; farklı gönderiler ayrı kalır. Desteklenmeyen
+// site ya da http(s) dışıysa null döner → taranmaz.
+function dupeKey(url) {
+  let u;
+  try { u = new URL(url); } catch { return null; }
+  if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+  const host = dupeCanonHost(u.hostname);
+  if (!dupeSiteName(host)) return null;
+  const path = u.pathname.replace(/\/+$/, "") || "/";
+  return `${host}${path}`;
+}
+
+function setDupeStatus(text, level = "idle") {
+  const el = document.getElementById("dupeStatus");
+  if (!el) return;
+  el.textContent = text || "";
+  el.dataset.level = level;
+}
+
+// Açık sekmeleri gruplar; yalnız 2+ kez açılmış anahtarları döndürür.
+async function findDuplicateTabs() {
+  const tabs = await chrome.tabs.query({});
+  const groups = new Map();
+  for (const tab of tabs) {
+    const key = dupeKey(tab.url || "");
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(tab);
+  }
+  return [...groups.entries()]
+    .filter(([, list]) => list.length >= 2)
+    .map(([key, list]) => ({ key, tabs: list }))
+    .sort((a, b) => b.tabs.length - a.tabs.length);
+}
+
+// Gruptan biri kalır (etkin sekme varsa o, yoksa ilki), gerisi kapanır.
+function extrasOf(list) {
+  const keep = list.find((t) => t.active) || list[0];
+  return list.filter((t) => t !== keep);
+}
+
+async function closeTabs(tabs) {
+  const ids = tabs.map((t) => t.id).filter((id) => Number.isInteger(id));
+  if (ids.length) await chrome.tabs.remove(ids);
+}
+
+function renderDuplicates(groups) {
+  const host = document.getElementById("dupeList");
+  const closeAll = document.getElementById("dupeCloseAll");
+  host.innerHTML = "";
+
+  if (!groups.length) {
+    closeAll.hidden = true;
+    setDupeStatus("Yinelenen sekme yok ✓", "done");
+    return;
+  }
+
+  const totalExtras = groups.reduce((sum, g) => sum + (g.tabs.length - 1), 0);
+  closeAll.hidden = false;
+  setDupeStatus(`${groups.length} bağlantı yinelenmiş · ${totalExtras} fazla sekme`, "idle");
+
+  for (const group of groups) {
+    const named = group.tabs.find((t) => (t.title || "").trim()) || group.tabs[0];
+    const title = (named.title || "").trim() || group.key;
+    const site = dupeSiteName(group.key);
+
+    const info = document.createElement("div");
+    info.className = "dupe-info";
+    const b = document.createElement("b");
+    b.textContent = title;
+    b.title = title;
+    const small = document.createElement("small");
+    small.textContent = `${site ? `${site} · ` : ""}${group.key}`;
+    small.title = group.key;
+    info.append(b, small);
+
+    const badge = document.createElement("span");
+    badge.className = "dupe-badge";
+    badge.textContent = `×${group.tabs.length}`;
+
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "secondary-action dupe-close";
+    close.textContent = "Fazlalığı kapat";
+    close.addEventListener("click", async () => {
+      await closeTabs(extrasOf(group.tabs));
+      await scanDuplicates();
+    });
+
+    const row = document.createElement("div");
+    row.className = "dupe-group";
+    row.append(info, badge, close);
+    host.appendChild(row);
+  }
+}
+
+async function scanDuplicates() {
+  const scan = document.getElementById("dupeScan");
+  if (scan) scan.disabled = true;
+  setDupeStatus("Sekmeler taranıyor…", "idle");
+  try {
+    renderDuplicates(await findDuplicateTabs());
+  } catch (error) {
+    setDupeStatus(String(error?.message || error), "error");
+  } finally {
+    if (scan) scan.disabled = false;
+  }
+}
+
+async function closeAllDuplicates() {
+  const button = document.getElementById("dupeCloseAll");
+  if (button) button.disabled = true;
+  try {
+    const groups = await findDuplicateTabs();
+    await closeTabs(groups.flatMap((g) => extrasOf(g.tabs)));
+    await scanDuplicates();
+  } catch (error) {
+    setDupeStatus(String(error?.message || error), "error");
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 async function init() {
@@ -274,6 +440,18 @@ async function init() {
   document.getElementById("downloadScrolllerCurrent").addEventListener("click", downloadCurrentScrolllerMedia);
   document.getElementById("pickScrolllerElement").addEventListener("click", startScrolllerElementPicker);
   document.getElementById("resetScrolllerElements").addEventListener("click", resetScrolllerHiddenElements);
+
+  document.getElementById("cloudGoogle").addEventListener("click", connectWithGoogle);
+  document.getElementById("cloudTest").addEventListener("click", testCloudConnection);
+  document.getElementById("cloudSyncLists").addEventListener("click", previewCloudLists);
+  document.getElementById("openArchive").addEventListener("click", () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL("archive.html") });
+    window.close();
+  });
+
+  document.getElementById("dupeScan").addEventListener("click", scanDuplicates);
+  document.getElementById("dupeCloseAll").addEventListener("click", closeAllDuplicates);
+  scanDuplicates(); // menü açılır açılmaz sekmeleri tara
 }
 
 init();

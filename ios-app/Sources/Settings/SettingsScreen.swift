@@ -23,11 +23,11 @@ struct SettingsScreen: View {
                     }
                     Slider(value: $settings.fabSize, in: 44...78, step: 2)
                     fabPreview
-                    Toggle("Solda dursun", isOn: $settings.fabOnLeft)
+                    placementGrid
                 } header: {
                     Text("Yüzen indirme butonu")
                 } footer: {
-                    Text("Kısa dokunuş ekranın ortasındaki medyayı indirir. Basılı tutunca seçim modu açılır: ekran kararır, medyalara dokunarak seçersin (neon çerçeve), butona tekrar basınca seçilenler iner. Bu boyut yalnızca bu butonu etkiler.")
+                    Text("Kısa dokunuş ekranın ortasındaki medyayı indirir. Basılı tutunca seçim modu açılır: ekran kararır, medyalara dokunarak seçersin (neon çerçeve), butona tekrar basınca seçilenler iner. Konumu ızgaradan seç ya da butonu sayfada sürükleyip bırak — sürüklediğinde konum kendiliğinden \"Serbest\"e geçer.")
                 }
 
                 Section {
@@ -41,6 +41,12 @@ struct SettingsScreen: View {
                             ForEach(DownloadDestination.allCases) { destination in
                                 Text(destination.label).tag(destination)
                             }
+                        }
+                        Picker("İndirme hızı", selection: $settings.bwDown) {
+                            ForEach(Self.bwSteps, id: \.self) { Text(Self.bwLabel($0)).tag($0) }
+                        }
+                        Picker("Yükleme hızı", selection: $settings.bwUp) {
+                            ForEach(Self.bwSteps, id: \.self) { Text(Self.bwLabel($0)).tag($0) }
                         }
                     }
                     Button {
@@ -61,7 +67,7 @@ struct SettingsScreen: View {
                 } header: {
                     Text("Bulut ve Eşitleme")
                 } footer: {
-                    Text("Cloudflare Worker adresin — listeler ve medya (R2) buradan gelir. Tek gizli anahtar (ARCHIVE_TOKEN) uygulamayı açar; anahtar Keychain'de saklanır. Kurulum: depodaki cloud/README.md. Hedef \"Bulut\" iken indirilenler cihazda yer kaplamaz; webm de buluta inebilir.")
+                    Text("Cloudflare Worker adresin — listeler ve medya (R2) buradan gelir. Tek gizli anahtar (ARCHIVE_TOKEN) uygulamayı açar; anahtar Keychain'de saklanır. Kurulum: depodaki cloud/README.md. Hedef \"Bulut\" iken indirilenler cihazda yer kaplamaz; webm de buluta inebilir. Hız sınırını sunucu uyguluyor: bağlantı başına, mobil veride kotayı korumak için.")
                 }
 
                 Section {
@@ -106,6 +112,60 @@ struct SettingsScreen: View {
             }
             .navigationTitle("Ayarlar")
         }
+    }
+
+    /// Web tarafındaki kaydırıcıyla aynı basamaklar (app.js → BW_STEPS); 0
+    /// sınırsız demek.
+    private static let bwSteps = [0, 1, 2, 5, 10, 20, 50, 100, 200, 500]
+
+    private static func bwLabel(_ mbps: Int) -> String {
+        mbps == 0 ? "Sınırsız" : "\(mbps) Mbps"
+    }
+
+    /// Konum seçimi, ekranın kendisine benzeyen 3×3 bir ızgara. Ortadaki hücre
+    /// "Serbest": sürükleyip bıraktığın nokta orada saklanır, dokununca oraya
+    /// geri döner. Dokuz kutu, dokuz olası yer — hangisinin ne olduğunu
+    /// açıklamaya gerek kalmıyor.
+    private var placementGrid: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                placementCell(.topLeft); placementCell(.topCenter); placementCell(.topRight)
+            }
+            HStack(spacing: 6) {
+                placementCell(.midLeft); placementCell(.custom); placementCell(.midRight)
+            }
+            HStack(spacing: 6) {
+                placementCell(.bottomLeft); placementCell(.bottomCenter); placementCell(.bottomRight)
+            }
+            Text(settings.fabAnchor.label)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func placementCell(_ anchor: FabAnchor) -> some View {
+        let on = settings.fabAnchor == anchor
+        return Button {
+            settings.fabAnchor = anchor
+        } label: {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(on ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary))
+                .frame(height: 34)
+                .overlay {
+                    if anchor == .custom {
+                        Image(systemName: "hand.draw")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(on ? Color.white : Color.secondary)
+                    } else {
+                        Circle()
+                            .fill(on ? Color.white : Color.secondary.opacity(0.55))
+                            .frame(width: 9, height: 9)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(anchor.label)
     }
 
     /// Shows the slider's effect at true size, so the number does not have to

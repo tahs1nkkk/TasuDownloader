@@ -19,6 +19,7 @@ import * as config from "../functions/api/config.js";
 import { handleMedia } from "./media.js";
 import { handleMeta } from "./meta.js";
 import { handleShareApi, handleSharePublic } from "./share.js";
+import { rateLimit, tooManyRequests } from "./limits.js";
 import { APP_VERSION, appLogin, finishLogin, loginPage, logout, readSession, startLogin } from "./auth.js";
 
 const ROUTES = {
@@ -62,6 +63,11 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, "") : url.pathname;
+
+    // 0) İstek sınırı — yetki denetiminden önce, çünkü asıl korumak istediğimiz
+    //    şey token'ı ele geçirmiş birinin arşivi toptan çekmesi.
+    const retryAfter = rateLimit(request, path);
+    if (retryAfter) return tooManyRequests(retryAfter);
 
     // 1) Kimlik uçları — her zaman açık.
     if (path === "/auth/login") return startLogin(request, env);

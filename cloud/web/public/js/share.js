@@ -14,7 +14,6 @@ function field(label, input, hint) {
 async function showLink(url) {
   await dialog({
     title: "Link hazır",
-    text: "Bu bağlantıyı açan kişi giriş yapmadan medyayı görür.",
     build: (box) => {
       const input = el("input", { type: "text", value: url, readonly: true });
       input.addEventListener("focus", () => input.select());
@@ -49,7 +48,7 @@ export async function openShare(keys) {
 
   const url = await dialog({
     title: `${keys.length} dosya paylaş`,
-    text: "Link, aşağıdaki iki sınırdan hangisi önce dolarsa o an kapanır.",
+    text: "Hangi sınır önce dolarsa link o an kapanır.",
     build: (box) => {
       box.append(field("Etiket (isteğe bağlı)", label));
       box.append(field("Kaç kez açılabilir", opens, "0 yazarsan sınırsız."));

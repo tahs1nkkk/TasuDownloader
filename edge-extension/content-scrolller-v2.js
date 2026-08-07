@@ -4,17 +4,11 @@
 
   const HOST_ID = "rg-scrolller-v2-host";
   const BUTTON_ID = "rg-scrolller-v2-button";
-  const CARD_HOST_ID = "rg-scrolller-card-buttons";
+  const WEB_BUTTON_ID = "rg-scrolller-v2-web";
   const CLEANUP_STYLE_ID = "rg-scrolller-cleanup-style";
   const PICKER_HOST_ID = "rg-scrolller-picker-host";
   const SETTINGS_KEY = globalThis.RG_SETTINGS.SETTINGS_KEY;
   let settings = { ...globalThis.RG_SETTINGS.DEFAULT_SETTINGS };
-  const cardButtons = new Map();
-  let trackingFrame = 0;
-  let feedScrolling = false;
-  let scrollEndTimer = 0;
-  let pointerX = -1;
-  let pointerY = -1;
 
   function applyCleanupSelectors() {
     let style = document.getElementById(CLEANUP_STYLE_ID);
@@ -112,8 +106,6 @@
     shadow.innerHTML = `<style>:host{all:initial!important;pointer-events:none!important}#box{display:none;position:fixed;box-sizing:border-box;border:3px solid #f59e0b;background:rgba(245,158,11,.12);pointer-events:none}#tip{position:fixed;left:50%;top:16px;transform:translateX(-50%);padding:9px 14px;border-radius:999px;color:#fff;background:#111827;font:600 12px system-ui;white-space:nowrap}</style><div id="box"></div><div id="tip">Gizlenecek öğeye tıkla · İptal: Esc</div>`;
     document.documentElement.appendChild(host);
     const box = shadow.getElementById("box");
-    const cardHost = document.getElementById(CARD_HOST_ID);
-    if (cardHost) cardHost.style.setProperty("display", "none", "important");
     let target = null;
 
     const finish = () => {
@@ -121,8 +113,6 @@
       document.removeEventListener("click", onClick, true);
       document.removeEventListener("keydown", onKey, true);
       host.remove();
-      if (cardHost) cardHost.style.removeProperty("display");
-      renderCardButtons();
     };
     const onMove = (event) => {
       target = cleanupTargetFor(event.target);
@@ -245,7 +235,15 @@
     for (let depth = 0; node instanceof Element && depth < 7; depth += 1, node = node.parentElement) {
       const rect = node.getBoundingClientRect();
       if (depth > 1 && rect.width * rect.height > mediaArea * 5 && node.querySelectorAll("img, video").length > 1) break;
-      const links = [node.matches("a[href]") ? node : null, ...node.querySelectorAll(":scope > a[href], :scope > * > a[href]")].filter(Boolean);
+      // Every anchor inside this ancestor, not just the first two levels. The
+      // feed nests the post link several wrappers below the card (title row,
+      // overlay, subreddit chip), so the old ":scope > a" pair found nothing and
+      // the candidate ended up with neither a url nor a source page — which is
+      // the "indirilecek url bulunamadı" the report describes. The area guard
+      // above already stops the walk before it reaches a shared container.
+      const links = [node.matches("a[href]") ? node : null, ...node.querySelectorAll("a[href]")]
+        .filter(Boolean)
+        .slice(0, 24);
       for (const link of links) {
         try {
           const url = new URL(link.href, location.href);
@@ -368,9 +366,20 @@
     return httpUrls([...declared.flatMap((url) => largerCdnVariants(url)), ...declared]);
   }
 
+  // The one being looked at. The feed scrolls vertically, so "mine" is the card
+  // nearest the middle of the screen; before, the largest media on screen won,
+  // which on a tall card meant the half-scrolled neighbour.
   function bestVisibleMedia() {
+    const centerX = innerWidth / 2;
+    const centerY = innerHeight / 2;
     return visibleMediaCandidates()
-      .sort((a, b) => (a.kind === b.kind ? b.area - a.area : a.kind === "video" ? -1 : 1))[0] || null;
+      .map((candidate) => ({
+        candidate,
+        distance: Math.abs(candidate.rect.top + candidate.rect.height / 2 - centerY)
+          + Math.abs(candidate.rect.left + candidate.rect.width / 2 - centerX) * 0.25
+      }))
+      .sort((a, b) => a.distance - b.distance)
+      .map((item) => item.candidate)[0] || null;
   }
 
   function mediaRect(media) {
@@ -468,7 +477,11 @@
         };
       })
       .filter((item) => item.area > 18000 && item.rect.width >= 140 && item.rect.height >= 100 && (item.urls.length || item.sourcePageUrl))
-      .filter((item) => item.trustedOwnSource);
+      // A trusted own source proves it; so does a scrolller content page around
+      // it. Requiring the first alone dropped every video Scrolller plays from a
+      // blob: url — which is most of them — so the picker collected nothing and
+      // "çoklu indirmede videolar inmiyor" followed. Ads have neither.
+      .filter((item) => item.trustedOwnSource || Boolean(item.sourcePageUrl));
 
     const viewerVideos = videos.filter((item) => viewerLayerFor(item.media));
     if (viewerVideos.length > 1) {
@@ -504,6 +517,20 @@
       .slice(0, 30);
   }
 
+  // Kaynak etiketi — özellik A: Scrolller'da belirgin "kullanıcı" yok; en yakın
+  // karşılık, URL'deki alt-dizin/koleksiyon (ör. "r/cats"). İçerik sayfasında boş.
+  function currentScrolllerSource() {
+    const segs = location.pathname.split("/").filter(Boolean);
+    if (!segs.length) return "";
+    const ri = segs.indexOf("r");
+    if (ri >= 0 && segs[ri + 1]) return `r/${segs[ri + 1]}`;
+    if (!isScrolllerContentPath(location.pathname)) {
+      const first = segs[0];
+      if (first && !/^(explore|following|about|settings|login|signup)$/i.test(first)) return first;
+    }
+    return "";
+  }
+
   function sendDownload(urls, folderName = "", options = {}) {
     return new Promise((resolve, reject) => {
       chrome.runtime.sendMessage({
@@ -512,6 +539,7 @@
         imageMode: options.imageMode === true,
         preserveAlternatives: true,
         scrolllerSourceUrl: options.scrolllerSourceUrl || "",
+        source: currentScrolllerSource(),
         allowRipsnipFallback: false,
         folderName
       }, (result) => {
@@ -552,144 +580,6 @@
     });
   }
 
-  function ensureCardOverlay() {
-    let host = document.getElementById(CARD_HOST_ID);
-    if (host?.isConnected) return host;
-    host = document.createElement("div");
-    host.id = CARD_HOST_ID;
-    host.dataset.rgVersion = "0.23.1";
-    host.style.setProperty("all", "initial", "important");
-    host.style.setProperty("position", "fixed", "important");
-    host.style.setProperty("z-index", "2147483647", "important");
-    host.style.setProperty("inset", "0", "important");
-    host.style.setProperty("pointer-events", "none", "important");
-    const shadow = host.attachShadow({ mode: "open" });
-    shadow.innerHTML = `
-      <style>
-        :host { all: initial !important; pointer-events: none !important; }
-        #buttons { position: fixed; z-index: 2147483647; inset: 0; pointer-events: none; }
-        button {
-          all: initial; position: fixed; z-index: 2147483647; width: 38px; height: 38px; display: grid; place-items: center;
-          box-sizing: border-box; border: 0; border-radius: 999px; color: #fff;
-          background: rgba(37,99,235,.9); box-shadow: 0 6px 18px rgba(0,0,0,.48), 0 0 0 1px rgba(255,255,255,.24);
-          cursor: pointer !important; pointer-events: auto !important; touch-action: none; user-select: none;
-          font-family: system-ui, sans-serif;
-        }
-        button:hover { background: #1d4ed8; }
-        button:disabled { opacity: .58; cursor: wait; }
-        svg { width: 21px; height: 21px; pointer-events: none; }
-        #status { display: none; position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
-          max-width: min(320px, calc(100vw - 30px)); padding: 9px 13px; border-radius: 999px;
-          color: #fff; background: rgba(127,29,29,.94); font: 600 12px/1.3 system-ui, sans-serif; }
-        #status:not(:empty) { display: block; }
-      </style>
-      <div id="buttons"></div><div id="status" role="status"></div>
-    `;
-    document.documentElement.appendChild(host);
-    return host;
-  }
-
-  function positionCardButton(button, candidate) {
-    candidate.rect = mediaRect(candidate.media);
-    const area = visibleArea(candidate.media);
-    const eligible = area > 18000 && candidate.rect.width >= 140 && candidate.rect.height >= 100;
-    button.style.display = eligible ? "grid" : "none";
-    if (!eligible) return;
-    button.style.left = `${candidate.rect.left + 8}px`;
-    button.style.top = `${candidate.rect.top + 8}px`;
-    const viewer = Boolean(viewerLayerFor(candidate.media))
-      || (isScrolllerContentPath(location.pathname) && area > innerWidth * innerHeight * 0.12);
-    const hovered = pointerX >= candidate.rect.left && pointerX <= candidate.rect.right
-      && pointerY >= candidate.rect.top && pointerY <= candidate.rect.bottom;
-    // hovered is derived from the last pointer position, which a touch screen
-    // never reports, so keep the button up there instead of hiding it forever.
-    const shown = globalThis.RG_SETTINGS.isTouchDevice() || viewer || (!feedScrolling && hovered);
-    button.style.opacity = shown ? "1" : "0";
-    button.style.visibility = shown ? "visible" : "hidden";
-    button.style.setProperty("pointer-events", shown ? "auto" : "none", "important");
-  }
-
-  function syncCardButtonPositions() {
-    for (const [media, button] of cardButtons) {
-      const candidate = button.__rgCandidate;
-      if (!media.isConnected || !candidate) continue;
-      positionCardButton(button, candidate);
-    }
-  }
-
-  function trackCardButtonPositions() {
-    if (trackingFrame) return;
-    trackingFrame = requestAnimationFrame(() => {
-      syncCardButtonPositions();
-      trackingFrame = 0;
-    });
-  }
-
-  function createCardButton(candidate, status) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.innerHTML = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 3v11m0 0 4-4m-4 4-4-4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
-    </svg>`;
-    button.addEventListener("pointerdown", (event) => {
-      event.stopPropagation();
-    });
-    button.addEventListener("click", async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (button.disabled) return;
-      button.disabled = true;
-      status.textContent = "";
-      try {
-        await downloadCandidate(button.__rgCandidate, { chooseFolder: true });
-      } catch (error) {
-        status.textContent = String(error?.message || error || "E_FAILED");
-      } finally {
-        button.disabled = false;
-      }
-    });
-    button.__rgCandidate = candidate;
-    return button;
-  }
-
-  function renderCardButtons() {
-    const host = ensureCardOverlay();
-    const shadow = host.shadowRoot;
-    const container = shadow.getElementById("buttons");
-    const status = shadow.getElementById("status");
-    const candidates = visibleMediaCandidates();
-    const activeMedia = new Set(candidates.map((candidate) => candidate.media));
-
-    for (const [media, button] of cardButtons) {
-      if (activeMedia.has(media) && media.isConnected) continue;
-      button.remove();
-      cardButtons.delete(media);
-    }
-
-    const fallbackHost = document.getElementById(HOST_ID);
-    if (fallbackHost) {
-      fallbackHost.style.setProperty("display", candidates.length ? "none" : "block", "important");
-    }
-
-    for (const candidate of candidates) {
-      let button = cardButtons.get(candidate.media);
-      if (!button) {
-        button = createCardButton(candidate, status);
-        cardButtons.set(candidate.media, button);
-        container.appendChild(button);
-      }
-      button.__rgCandidate = candidate;
-      button.title = candidate.kind === "video" ? "Bu videoyu indir" : "Bu görseli indir";
-      button.setAttribute("aria-label", button.title);
-      button.dataset.rgKind = candidate.kind;
-      button.dataset.rgMediaTag = candidate.media.localName;
-      button.dataset.rgSourcePage = candidate.sourcePageUrl || "";
-      positionCardButton(button, candidate);
-    }
-    trackCardButtonPositions();
-  }
-
   function install() {
     if (document.getElementById(HOST_ID)) return;
     const host = document.createElement("div");
@@ -705,7 +595,21 @@
     const shadow = host.attachShadow({ mode: "open" });
     shadow.innerHTML = `
       <style>
-        :host { all: initial !important; }
+        /* Shadow ağacındaki !important bildirimleri, ağaç sınırını aşarken host'un
+           kendi (inline) !important stillerini YENER (CSS Scoping kuralı: important
+           için iç ağaç dışı yener). Bu yüzden host'a install()'da verilen
+           position:fixed / top / z-index, :host'un all:initial'ı tarafından eziliyor;
+           buton sayfa akışına düşüp en dibe kayıyor ve kullanıcıya HİÇ görünmüyordu.
+           Çözüm: konumu :host içinde, all:initial'dan SONRA vermek — aynı kuralda
+           sonraki bildirim kazanır ve sayfa CSS'ine karşı da bağışık kalır. */
+        :host {
+          all: initial !important;
+          position: fixed !important;
+          right: 18px !important;
+          top: 92px !important;
+          z-index: 2147483647 !important;
+          display: block !important;
+        }
         button {
           all: initial; width: 52px; height: 52px; display: grid; place-items: center;
           box-sizing: border-box; border: 0; border-radius: 999px; color: #fff;
@@ -715,7 +619,11 @@
         button:hover { background: #1d4ed8; }
         button:disabled { opacity: .6; cursor: wait; }
         svg { width: 28px; height: 28px; pointer-events: none; }
-        #status { display: none; position: absolute; right: 0; top: 60px; width: max-content; max-width: 260px;
+        /* Özellik D — indirme butonunun hemen altında "web listesine ekle". */
+        #${WEB_BUTTON_ID} { margin-top: 10px; background: #0f766e; }
+        #${WEB_BUTTON_ID}:hover { background: #0d9488; }
+        #${WEB_BUTTON_ID} svg { width: 26px; height: 26px; }
+        #status { display: none; position: absolute; right: 0; top: 124px; width: max-content; max-width: 260px;
           padding: 8px 11px; border-radius: 8px; color: #fff; background: rgba(127,29,29,.94);
           font: 600 12px/1.3 system-ui, sans-serif; }
         #status:not(:empty) { display: block; }
@@ -724,6 +632,12 @@
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M12 3v11m0 0 4-4m-4 4-4-4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
           <path d="M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button id="${WEB_BUTTON_ID}" type="button" title="Bu gönderiyi web listesine ekle" aria-label="Bu gönderiyi web listesine ekle">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M17 3H7a2 2 0 0 0-2 2v16l7-4 7 4V5a2 2 0 0 0-2-2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M12 8.5v5M9.5 11h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
         </svg>
       </button>
       <div id="status" role="status"></div>
@@ -744,6 +658,21 @@
         button.disabled = false;
       }
     });
+
+    // Özellik D — görünen medyanın permalink'ini web listesine ekle. Kapsam:
+    // "sadece ana medya" (tek, görünür öğe). Menü/toast light DOM'da açılır.
+    const webButton = shadow.getElementById(WEB_BUTTON_ID);
+    if (webButton && window.rgAddToWeb) {
+      webButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const candidate = visibleMediaCandidates()[0];
+        const url = (candidate && candidate.sourcePageUrl) || location.href;
+        window.rgAddToWeb({ url, title: document.title || "" }, { anchor: webButton });
+      });
+    } else if (webButton) {
+      webButton.style.display = "none";
+    }
 
     document.documentElement.appendChild(host);
     console.info("[rg-scrolller-v2] izole indirme kontrolü yüklendi", { version: host.dataset.rgVersion });
@@ -768,49 +697,19 @@
     requestAnimationFrame(() => {
       installScheduled = false;
       ensureInstalled();
-      renderCardButtons();
     });
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
   setInterval(() => {
     applyCleanupSelectors();
     ensureInstalled();
-    renderCardButtons();
   }, 800);
-  window.addEventListener("scroll", () => {
-    feedScrolling = true;
-    syncCardButtonPositions();
-    trackCardButtonPositions();
-    clearTimeout(scrollEndTimer);
-    scrollEndTimer = setTimeout(() => {
-      feedScrolling = false;
-      renderCardButtons();
-    }, 90);
-  }, { passive: true });
-  window.addEventListener("resize", () => {
-    renderCardButtons();
-    trackCardButtonPositions();
-  });
-  document.addEventListener("click", () => {
-    for (const delay of [0, 80, 220, 500]) setTimeout(renderCardButtons, delay);
-  }, true);
-  document.addEventListener("pointermove", (event) => {
-    pointerX = event.clientX;
-    pointerY = event.clientY;
-    trackCardButtonPositions();
-  }, { passive: true });
-  document.addEventListener("pointerleave", () => {
-    pointerX = -1;
-    pointerY = -1;
-    trackCardButtonPositions();
-  }, { passive: true });
 
   function loadSettings() {
     chrome.storage.local.get(SETTINGS_KEY, (items) => {
       settings = { ...globalThis.RG_SETTINGS.DEFAULT_SETTINGS, ...(items?.[SETTINGS_KEY] || {}) };
       applyCleanupSelectors();
       ensureInstalled();
-      renderCardButtons();
     });
   }
 
@@ -818,7 +717,6 @@
     if (area !== "local" || !changes[SETTINGS_KEY]) return;
     settings = { ...globalThis.RG_SETTINGS.DEFAULT_SETTINGS, ...(changes[SETTINGS_KEY].newValue || {}) };
     applyCleanupSelectors();
-    renderCardButtons();
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -860,6 +758,5 @@
     }));
 
   ensureInstalled();
-  renderCardButtons();
   loadSettings();
 })();

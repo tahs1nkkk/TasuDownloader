@@ -82,11 +82,10 @@ const HANDLER_BUTTONS = [
   ".rg-coomer-download",
   "#rg-ig-one",
   "#rg-ig-all",
-  // Scrolller's two shadow hosts. These are element ids, not custom tag names
-  // (content-scrolller-v2.js sets HOST_ID / CARD_HOST_ID), so the # matters —
-  // without it the selector matches nothing and its buttons stay on screen.
-  "#rg-scrolller-v2-host",
-  "#rg-scrolller-card-buttons"
+  // Scrolller's single shadow host. This is an element id, not a custom tag name
+  // (content-scrolller-v2.js sets HOST_ID), so the # matters — without it the
+  // selector matches nothing and its button stays on screen.
+  "#rg-scrolller-v2-host"
 ];
 
 const read = (...parts) => fs.readFileSync(path.join(...parts), "utf8");

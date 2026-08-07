@@ -1,9 +1,35 @@
-importScripts("common/settings.js");
+importScripts("common/settings.js", "common/cloud.js");
 
 const RIPSNIP_URL = "https://ripsnip.com/";
 const MEDIA_RE = /\.(mp4|webm|mov|m4v)(?:[?#].*)?$/i;
 const DOWNLOAD_RE = /\.(mp4|webm|mov|m4v|jpg|jpeg|png|webp|gif)(?:[?#].*)?$/i;
-const { SETTINGS_KEY, DEFAULT_SETTINGS } = globalThis.RG_SETTINGS;
+const { SETTINGS_KEY, LEGACY_SETTINGS_KEY, DEFAULT_SETTINGS } = globalThis.RG_SETTINGS;
+
+// Ayar anahtarı yeniden adlandırıldı (rgRipsnipSettings -> tasuDownloaderSettings).
+// Mevcut kurulumlar ayarlarını eski anahtarda tutuyor; service worker her
+// uyandığında bir kez kontrol edip taşırız. İdempotent: taşıdıktan sonra eski
+// anahtarı siler, sonraki açılışlarda yapacak iş kalmaz.
+(function migrateLegacySettingsKey() {
+  try {
+    chrome.storage.local.get([SETTINGS_KEY, LEGACY_SETTINGS_KEY], (items) => {
+      if (chrome.runtime.lastError) return;
+      const current = items && items[SETTINGS_KEY];
+      const legacy = items && items[LEGACY_SETTINGS_KEY];
+      if (!legacy) return;
+      const hasCurrent = current && Object.keys(current).length > 0;
+      if (hasCurrent) {
+        // Yeni anahtar zaten kullanımda; bayat eski kopyayı at.
+        chrome.storage.local.remove(LEGACY_SETTINGS_KEY);
+        return;
+      }
+      chrome.storage.local.set({ [SETTINGS_KEY]: legacy }, () => {
+        if (!chrome.runtime.lastError) chrome.storage.local.remove(LEGACY_SETTINGS_KEY);
+      });
+    });
+  } catch {
+    // storage erişilemez — sonraki uyanışta yeniden denenir.
+  }
+})();
 
 const jobs = new Map();
 let mediaWatch = null;
@@ -101,7 +127,7 @@ function extensionFor(url) {
   let ext = ".mp4";
   try {
     const parsed = new URL(url);
-    const extMatch = parsed.pathname.match(/\.(mp4|webm|mov|m4v|jpg|jpeg|png|webp|gif)$/i);
+    const extMatch = parsed.pathname.match(/\.(mp4|webm|mov|m4v|ts|m4s|jpg|jpeg|png|webp|gif)$/i);
     if (extMatch) ext = extMatch[0].toLowerCase();
   } catch {
     ext = ".mp4";
@@ -119,7 +145,7 @@ function filenameFor(url, settings = DEFAULT_SETTINGS, folderName = "", download
   } catch {
     label = "redgifs-video";
   }
-  label = label.replace(/\.(mp4|webm|mov|m4v|jpg|jpeg|png|webp|gif)$/i, "");
+  label = label.replace(/\.(mp4|webm|mov|m4v|ts|m4s|jpg|jpeg|png|webp|gif)$/i, "");
   // Drop a trailing variant/resolution tag so files are `<slug>` not
   // `<slug>-large` (RedGifs) or `<slug>_1920x1080` (Scrolller). Mirrors
   // MediaNaming.stripVariantSuffix on the iOS side.
@@ -146,34 +172,193 @@ function filenameFor(url, settings = DEFAULT_SETTINGS, folderName = "", download
   return [dest, `${label}${ext}`].join("/");
 }
 
-function downloadToFile(url, sourceTabId, folderName = "", downloadPath = "", subFolder = "", site = "Other", namingUrl = url) {
-  return new Promise((resolve, reject) => {
+function readSettings() {
+  return new Promise((resolve) => {
     chrome.storage.local.get(SETTINGS_KEY, (items) => {
-    const settings = { ...DEFAULT_SETTINGS, ...(items && items[SETTINGS_KEY] || {}) };
-    let filename = "";
-    try {
-      filename = filenameFor(namingUrl, settings, folderName, downloadPath, subFolder, site);
-    } catch (error) {
-      reject(error);
-      return;
-    }
+      resolve({ ...DEFAULT_SETTINGS, ...(items && items[SETTINGS_KEY] || {}) });
+    });
+  });
+}
+
+// Diske indirme — eski davranış, tek başına bir Promise'e sarıldı.
+function localDownload(url, filename) {
+  return new Promise((resolve, reject) => {
     chrome.downloads.download(
-      {
-        url,
-        filename,
-        conflictAction: "uniquify",
-        saveAs: false
-      },
+      { url, filename, conflictAction: "uniquify", saveAs: false },
       (downloadId) => {
         if (chrome.runtime.lastError) {
           reject(new Error(`${chrome.runtime.lastError.message} (${filename})`));
           return;
         }
-        resolve({ downloadId, filename });
+        resolve(downloadId);
       }
     );
-    });
   });
+}
+
+// Bir medya sunucuya kaydolunca kullanıcının haberi olsun diye — Windows
+// bildirimi yerine sayfanın altında bir bilgilendirme mesajı gösterir
+// (weblink.js'teki toast'ı tetikler). tabId yoksa sessizce geçer.
+function notifyCloudSaved(tabId, name, site) {
+  const label = site && site !== "Other" ? `${site} · ${name}` : String(name || "medya");
+  notify(tabId, { type: "RG_CLOUD_TOAST", text: `Sunucuya kaydedildi ✓ ${label}` });
+}
+
+// Medya baytlarını çekip R2'ye yükler. Eklentinin host_permissions'ı (https://*/*)
+// sayesinde service worker fetch'i CORS'a takılmadan gövdeyi okuyabilir.
+async function uploadUrlToCloud(settings, url, name, site, source = "", tabId = null) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`kaynak ${response.status}`);
+  const blob = await response.blob();
+  const key = await globalThis.RG_CLOUD.uploadMedia(settings, blob, { name, site, source });
+  notifyCloudSaved(tabId, name || key, site);
+  return key;
+}
+
+// --- Web listeleri (özellik D) --------------------------------------------
+// İçerik betiği bir gönderiyi "bağlantı" olarak buluttaki bir listeye ekler.
+// Şema iOS'un Codable modeliyle bire bir uyumlu OLMAK ZORUNDA: iOS snapshot'ı
+// .iso8601 (kesirli saniyesiz) çözer ve `try?` ile — bir öğe bile uyumsuzsa
+// tüm uzak snapshot atılır ve uygulama kendi halini geri yazıp eklemeyi siler.
+//   LinkItem = { id:UUID, url, title, addedAt:ISO }
+//   LinkList = { id:UUID, name, items:[…], updatedAt:ISO }
+
+// "2026-07-27T12:34:56Z" — new Date().toISOString() milisaniye ekler; iOS'un
+// düz ISO8601DateFormatter'ı onu çözemez, bu yüzden kırpıyoruz.
+function isoNow() {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function uuid() {
+  if (globalThis.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
+// Bir listenin sitesi: bağlantılarında en çok geçen site. Karışıksa/boşsa
+// "Other". Seçici (weblink.js) yalnız bulunulan sitenin listelerini göstersin
+// diye her özet buna göre etiketlenir. Ölçüt cloud/web/js/lists.js ile aynı.
+const SITE_HINTS = [
+  [/redgifs\./i, "RedGifs"],
+  [/reddit\.|redd\.it/i, "Reddit"],
+  [/instagram\./i, "Instagram"],
+  [/scrolller\./i, "Scrolller"],
+  [/coomer\.|kemono\./i, "Coomer"],
+  [/onlyfans\./i, "OnlyFans"]
+];
+
+function siteOfURL(url) {
+  let host = "";
+  try { host = new URL(url).hostname; } catch { return ""; }
+  for (const [pattern, name] of SITE_HINTS) if (pattern.test(host)) return name;
+  return "";
+}
+
+function siteOfList(list) {
+  const tally = new Map();
+  for (const item of (list && list.items) || []) {
+    const site = siteOfURL(item && item.url);
+    if (site) tally.set(site, (tally.get(site) || 0) + 1);
+  }
+  let best = "";
+  let top = 0;
+  for (const [site, count] of tally) if (count > top) { best = site; top = count; }
+  return best || "Other";
+}
+
+function summarizeLists(snapshot) {
+  const lists = snapshot && Array.isArray(snapshot.lists) ? snapshot.lists : [];
+  return lists
+    .filter((l) => l && typeof l.id === "string")
+    .map((l) => ({ id: l.id, name: l.name || "(adsız)", count: (l.items || []).length, site: siteOfList(l) }));
+}
+
+// getLists → değiştir → putLists. Aynı URL zaten varsa başlığı tazeleyip başa
+// alır (iOS'un add(url:…) davranışı). updatedAt bump'ı merge'de kazanmayı sağlar.
+async function addWebLink(settings, { url, title, listId, newListName }) {
+  const snap = (await globalThis.RG_CLOUD.getLists(settings)) || { lists: [], tombstones: [] };
+  if (!Array.isArray(snap.lists)) snap.lists = [];
+  if (!Array.isArray(snap.tombstones)) snap.tombstones = [];
+  const now = isoNow();
+
+  let list;
+  if (newListName) {
+    list = { id: uuid(), name: newListName, items: [], updatedAt: now };
+    snap.lists.unshift(list);
+  } else {
+    list = snap.lists.find((l) => l && l.id === listId);
+    if (!list) return { ok: false, error: "Liste bulunamadı" };
+    if (!Array.isArray(list.items)) list.items = [];
+  }
+
+  const label = title || url;
+  const existing = list.items.find((it) => it && it.url === url);
+  if (existing) {
+    existing.title = label;
+    existing.addedAt = now;
+    list.items = list.items.filter((it) => it !== existing);
+    list.items.unshift(existing);
+  } else {
+    list.items.unshift({ id: uuid(), url, title: label, addedAt: now });
+  }
+  list.updatedAt = now;
+
+  await globalThis.RG_CLOUD.putLists(settings, snap);
+  return { ok: true, listName: list.name, duplicate: !!existing };
+}
+
+/**
+ * Tek indirme choke-noktası. Hedef ayarına göre diske indirir, buluta yükler
+ * ya da ikisini birden yapar:
+ *   "local" → chrome.downloads (eski yol)
+ *   "cloud" → yalnız R2'ye PUT (await; hata fırlar ki aday döngüleri ilerlesin)
+ *   "both"  → diske indirir + buluta aynanı (yükleme başarısızlığı indirmeyi
+ *             düşürmez; hata bildirimle geçilir)
+ * Bulut seçili ama adres/jeton yoksa güvenli tarafa düşer: yerel indirir.
+ *
+ * Dönüş {downloadId, filename, cloudKey, uploadToCloud?}. `deferCloud` yalnız
+ * "both" modunu erteler: Coomer'ın çok-adaylı doğrulama döngüsü, aktarımı
+ * doğrulanan adayı buluta yüklesin diye uploadToCloud()'u kendi çağırır.
+ */
+async function downloadToFile(url, sourceTabId, folderName = "", downloadPath = "", subFolder = "", site = "Other", namingUrl = url, options = {}) {
+  const settings = await readSettings();
+  const filename = filenameFor(namingUrl, settings, folderName, downloadPath, subFolder, site);
+
+  // Yükleme jeton ister: SameSite=Lax çerezi arka plan isteğine gelmez. Jeton
+  // yoksa bulut seçili olsa bile yerele düşer ki indirme sessizce kaybolmasın.
+  const cloudReady = !!(globalThis.RG_CLOUD && globalThis.RG_CLOUD.canUseApi(settings));
+  const destination = settings.cloudDestination || "local";
+  const wantCloud = (destination === "cloud" || destination === "both") && cloudReady;
+  const wantLocal = destination === "local" || destination === "both" || !cloudReady;
+
+  const result = { downloadId: null, filename, cloudKey: null };
+  const leaf = filename.split("/").filter(Boolean).pop() || cleanFileName(url);
+  // Kaynak etiketi (ör. "r/aww u/xyz") çağırandan gelir; boşsa buluta yazılmaz.
+  const source = (options.source || "").toString();
+
+  if (wantLocal) {
+    result.downloadId = await localDownload(url, filename);
+  }
+
+  if (wantCloud) {
+    if (destination === "cloud") {
+      // Yalnız bulut: yerel indirme yok, yüklemenin kendisi doğrulamadır.
+      result.cloudKey = await uploadUrlToCloud(settings, url, leaf, site, source, sourceTabId);
+    } else if (options.deferCloud) {
+      result.uploadToCloud = () => uploadUrlToCloud(settings, url, leaf, site, source, sourceTabId)
+        .then((key) => { result.cloudKey = key; notify(sourceTabId, { type: "RG_HELPER_STATUS", level: "done", text: `Buluta yüklendi: ${key}` }); })
+        .catch((e) => notify(sourceTabId, { type: "RG_HELPER_STATUS", level: "error", text: `Bulut yükleme hatası: ${e.message || e}` }));
+    } else {
+      // "both": indirme başarısını beklemeden aynala; hata indirmeyi düşürmesin.
+      uploadUrlToCloud(settings, url, leaf, site, source, sourceTabId)
+        .then((key) => notify(sourceTabId, { type: "RG_HELPER_STATUS", level: "done", text: `Buluta yüklendi: ${key}` }))
+        .catch((e) => notify(sourceTabId, { type: "RG_HELPER_STATUS", level: "error", text: `Bulut yükleme hatası: ${e.message || e}` }));
+    }
+  }
+
+  return result;
 }
 
 function downloadItem(downloadId) {
@@ -206,8 +391,8 @@ function cancelDownload(downloadId) {
   });
 }
 
-function startDownload(url, sourceTabId, closeTabId, folderName = "", downloadPath = "", subFolder = "", site = "Other") {
-  downloadToFile(url, sourceTabId, folderName, downloadPath, subFolder, site)
+function startDownload(url, sourceTabId, closeTabId, folderName = "", downloadPath = "", subFolder = "", site = "Other", source = "") {
+  downloadToFile(url, sourceTabId, folderName, downloadPath, subFolder, site, url, { source })
     .then(({ downloadId }) => {
       notify(sourceTabId, {
         type: "RG_HELPER_STATUS",
@@ -253,7 +438,8 @@ function watchMediaTab(tabId, url) {
       mediaWatch.folderName,
       mediaWatch.downloadPath,
       mediaWatch.subFolder,
-      mediaWatch.site
+      mediaWatch.site,
+      mediaWatch.source
     );
     mediaWatch = null;
     return;
@@ -274,7 +460,8 @@ function watchMediaTab(tabId, url) {
           mediaWatch.folderName,
           mediaWatch.downloadPath,
           mediaWatch.subFolder,
-          mediaWatch.site
+          mediaWatch.site,
+          mediaWatch.source
         );
         mediaWatch = null;
       }
@@ -659,8 +846,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const folderName = message.folderName || "";
     const downloadPath = message.downloadPath || "";
     const subFolder = message.subFolder || "";
-    const site = globalThis.RG_SETTINGS.siteFromUrl(sender.tab && sender.tab.url || message.fallbackSourceUrl);
-    const ripsnipOptions = { folderName, downloadPath, subFolder, site };
+    // İçerik betiği açık bir `site` gönderirse (ör. Reddit içindeki redgifs embed'i
+    // "RedGifs" olarak) URL'den türetileni ezer — özellik C.
+    const site = message.site || globalThis.RG_SETTINGS.siteFromUrl(sender.tab && sender.tab.url || message.fallbackSourceUrl);
+    // Kaynak etiketi (kullanıcı/subreddit/niche) — özellik A; buluta customMetadata olarak gider.
+    const source = (message.source || "").toString().slice(0, 200);
+    const ripsnipOptions = { folderName, downloadPath, subFolder, site, source };
     (async () => {
       // Image mode: download the FIRST candidate that actually returns an image
       // (content-type image/*). Skips non-existent -large/clean variants that
@@ -670,7 +861,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         for (const url of urls) {
           if (await urlReturnsImage(url)) {
             try {
-              const download = await downloadToFile(url, sourceTabId, folderName, downloadPath, subFolder, site);
+              const download = await downloadToFile(url, sourceTabId, folderName, downloadPath, subFolder, site, url, { source });
               notify(sourceTabId, { type: "RG_HELPER_STATUS", level: "done", text: `Download started (#${download.downloadId}).` });
               sendResponse({ ok: true, mode: "image", url, download });
               return;
@@ -708,18 +899,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               downloadPath,
               subFolder,
               site,
-              message.namingUrl || url
+              message.namingUrl || url,
+              { deferCloud: true, source }
             );
             if (message.fallbackOnNoTransfer) {
+              // Bulut-tek modda yerel indirme yok; başarılı yükleme (download.cloudKey)
+              // aktarımın kanıtıdır, downloadId null gelir.
+              if (download.downloadId == null) {
+                downloads.push(download);
+                break;
+              }
               const transfer = await waitForDownloadTransfer(download.downloadId, message.transferTimeoutMs);
               if (!transfer.ok) {
                 await cancelDownload(download.downloadId);
                 console.warn("[rg-download] candidate did not transfer", { url, reason: transfer.reason });
                 continue;
               }
+              await download.uploadToCloud?.(); // "both": yalnız doğrulanan adayı aynala
               downloads.push(download);
               break;
             }
+            await download.uploadToCloud?.();
             downloads.push(download);
           } catch (e) {
             const msg = e && e.message || e;
@@ -769,7 +969,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (reach.length) {
           const downloads = [];
           for (const url of reach) {
-            downloads.push(await downloadToFile(url, sourceTabId, folderName, downloadPath, subFolder, site));
+            downloads.push(await downloadToFile(url, sourceTabId, folderName, downloadPath, subFolder, site, url, { source }));
             await sleep(120);
           }
           notify(sourceTabId, { type: "RG_HELPER_STATUS", level: "done", text: `${downloads.length} download started.` });
@@ -779,7 +979,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } else {
         const first = await firstReachableMediaUrl(filteredMessageUrls);
         if (first) {
-          const download = await downloadToFile(first, sourceTabId, folderName, downloadPath, subFolder, site);
+          const download = await downloadToFile(first, sourceTabId, folderName, downloadPath, subFolder, site, first, { source });
           notify(sourceTabId, { type: "RG_HELPER_STATUS", level: "done", text: `Download started (#${download.downloadId}).` });
           sendResponse({ ok: true, mode: "direct", url: first, download });
           return;
@@ -796,7 +996,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (mediaUrls.length) {
           const downloads = [];
           for (const url of mediaUrls) {
-            downloads.push(await downloadToFile(url, sourceTabId, folderName, downloadPath, subFolder, site));
+            downloads.push(await downloadToFile(url, sourceTabId, folderName, downloadPath, subFolder, site, url, { source }));
             await sleep(120);
           }
           notify(sourceTabId, {
@@ -812,7 +1012,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const mediaUrl = await firstReachableMediaUrl(directUrls);
 
       if (mediaUrl) {
-        const download = await downloadToFile(mediaUrl, sourceTabId, folderName, downloadPath, subFolder, site);
+        const download = await downloadToFile(mediaUrl, sourceTabId, folderName, downloadPath, subFolder, site, mediaUrl, { source });
         notify(sourceTabId, {
           type: "RG_HELPER_STATUS",
           level: "done",
@@ -872,7 +1072,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       folderName: job.folderName || "",
       downloadPath: job.downloadPath || "",
       subFolder: job.subFolder || "",
-      site: job.site || "Other"
+      site: job.site || "Other",
+      source: job.source || ""
     };
     return;
   }
@@ -886,8 +1087,75 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       job && job.folderName || "",
       job && job.downloadPath || "",
       job && job.subFolder || "",
-      job && job.site || "Other"
+      job && job.site || "Other",
+      job && job.source || ""
     );
+  }
+
+  // Özellik D: içerik betiği web listelerini ister / bir gönderiyi listeye ekler.
+  // Jeton arka planda; SameSite=Lax çerezi content-script fetch'ine gelmez.
+  if (message.type === "GET_LISTS") {
+    (async () => {
+      try {
+        const settings = await globalThis.RG_CLOUD.getSettings();
+        if (!globalThis.RG_CLOUD.canUseApi(settings)) { sendResponse({ ok: false, error: "Bulut ayarsız ya da jeton yok" }); return; }
+        const snap = (await globalThis.RG_CLOUD.getLists(settings)) || { lists: [], tombstones: [] };
+        sendResponse({ ok: true, lists: summarizeLists(snap) });
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (message.type === "ADD_WEB_LINK") {
+    const url = (message.url || "").toString().trim();
+    const title = (message.title || "").toString().trim().slice(0, 300);
+    const listId = (message.listId || "").toString();
+    const newListName = (message.newListName || "").toString().trim().slice(0, 60);
+    (async () => {
+      try {
+        if (!url) { sendResponse({ ok: false, error: "URL yok" }); return; }
+        const settings = await globalThis.RG_CLOUD.getSettings();
+        if (!globalThis.RG_CLOUD.canUseApi(settings)) { sendResponse({ ok: false, error: "Bulut ayarsız ya da jeton yok" }); return; }
+        sendResponse(await addWebLink(settings, { url, title, listId, newListName }));
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || String(e) });
+      }
+    })();
+    return true;
+  }
+
+  // OnlyFans videosu: içerik betiği HLS parçalarını (aynı çerez/Referer/CORS ile,
+  // yani oynatıcının kendisi gibi) çekip tek bir Blob'a dizdi ve nesne URL'sini
+  // (blob:https://onlyfans.com/…) bize verdi. Service worker bu sayfa-kökenli
+  // blob'u fetch EDEMEZ (blob URL'leri köken-hapsindedir), ama
+  // chrome.downloads.download blob'u tarayıcı sürecinde çözer — bu yüzden klasör
+  // düzeni korunarak indirme yine de çalışır. Dizilmiş HLS'in bulut aynası yok
+  // (SW fetch'i blob'da patlar), o yüzden bu videolar yalnız diske iner.
+  if (message.type === "OF_HLS_DOWNLOAD") {
+    const sourceTabId = sender.tab && sender.tab.id;
+    const blobUrl = (message.blobUrl || "").toString();
+    const folderName = (message.folderName || "").toString();
+    const source = (message.source || "").toString().slice(0, 200);
+    // namingUrl sahte bir mp4/ts adresidir (ör. .../creator/12345.mp4); filenameFor
+    // uzantıyı + Videolar kategorisini + dosya adını ondan türetir.
+    const namingUrl = (message.namingUrl || "onlyfans-video.mp4").toString();
+    (async () => {
+      try {
+        if (!/^blob:/i.test(blobUrl)) { sendResponse({ ok: false, error: "OF10: geçersiz blob URL" }); return; }
+        const settings = await readSettings();
+        const filename = filenameFor(namingUrl, settings, folderName, "", "", "OnlyFans");
+        const downloadId = await localDownload(blobUrl, filename);
+        notify(sourceTabId, { type: "RG_HELPER_STATUS", level: "done", text: `Download started (#${downloadId}).` });
+        sendResponse({ ok: true, downloadId, filename });
+      } catch (e) {
+        const msg = (e && e.message) || e;
+        notify(sourceTabId, { type: "RG_HELPER_STATUS", level: "error", text: `Download failed: OF11 ${msg}` });
+        sendResponse({ ok: false, error: `OF11: ${msg}` });
+      }
+    })();
+    return true;
   }
 });
 

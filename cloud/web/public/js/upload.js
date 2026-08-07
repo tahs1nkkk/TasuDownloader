@@ -5,7 +5,7 @@
 // aynı soruyu tekrarlatıyordu; oysa insan dosyaları sürükledikten sonra
 // karar veriyor. Yükleme sırasında pencere kapatılabilir, iş arka planda sürer.
 
-import { $, S, api, dialog, el, fmtBytes, toast } from "./core.js";
+import { $, S, api, bwUploadHeaders, dialog, el, fmtBytes, toast } from "./core.js";
 
 const MAX_PARALLEL = 2;
 
@@ -16,6 +16,10 @@ function putFile(file, onProgress) {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url, true);
     xhr.withCredentials = true;
+    // Bant genişliği sınırı sunucuda uygulanıyor; hangi hız olduğunu istek söyler.
+    for (const [name, value] of Object.entries(bwUploadHeaders())) {
+      xhr.setRequestHeader(name, value);
+    }
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress(event.loaded / event.total);
     };
@@ -47,7 +51,6 @@ async function placeFiles(keys, reload) {
 
   await dialog({
     title: `${keys.length} dosya yüklendi`,
-    text: "Şimdi nereye ait olduklarını söyleyebilirsin. Sonradan da değiştirilebilir.",
     build: (box) => {
       box.append(el("label", { class: "f" }, el("span", {}, "Site sekmesi"), siteSelect));
       box.append(el("label", { class: "f" }, el("span", {}, "Kategori"), catSelect));
@@ -191,19 +194,28 @@ export function openUpload(files, reload) {
 }
 
 // Sayfanın herhangi bir yerine dosya sürüklenince pencere kendiliğinden açılır.
+//
+// "Yalnız dışarıdan gelen dosya" şartı iki kapıdan geçiyor: dataTransfer'da
+// gerçekten Files olacak VE sürükleme bu sayfada başlamamış olacak. İkincisi
+// şart, çünkü ızgaradaki bir kapağı tutup sürüklediğinde tarayıcı onu da dosya
+// gibi ilan ediyor ve yükleme penceresi durduk yere açılıyordu.
 export function wireDragDrop(reload) {
-  let depth = 0;
   let open = false;
+  let internal = false;
+
+  document.addEventListener("dragstart", () => { internal = true; }, true);
+  document.addEventListener("dragend", () => { internal = false; }, true);
 
   window.addEventListener("dragenter", (event) => {
+    if (internal) return;
     if (!event.dataTransfer || !Array.from(event.dataTransfer.types).includes("Files")) return;
-    depth += 1;
-    if (!open) {
-      open = true;
-      openUpload([], reload).then(() => { open = false; depth = 0; });
-    }
+    if (open) return;
+    open = true;
+    openUpload([], reload).then(() => { open = false; });
   });
-  window.addEventListener("dragleave", () => { depth = Math.max(0, depth - 1); });
   window.addEventListener("dragover", (event) => event.preventDefault());
-  window.addEventListener("drop", (event) => event.preventDefault());
+  window.addEventListener("drop", (event) => {
+    event.preventDefault();
+    internal = false;
+  });
 }

@@ -5,7 +5,7 @@ import Security
 /// but the same value unlocks the PC's media server and the web archive — it
 /// belongs in the Keychain, not in a plaintext plist inside every backup.
 enum KeychainBox {
-    private static let service = "com.lsatv.ripsnip.secrets"
+    private static let service = "com.tasuapps.tasudownloader.secrets"
 
     static func get(_ key: String) -> String? {
         let query: [String: Any] = [

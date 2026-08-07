@@ -4,8 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="theme-color" content="#08070a">
-  <title>Tasu Archive</title>
+  <meta name="theme-color" content="#08070a" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#faf7f2" media="(prefers-color-scheme: light)">
+  <title>Tasu Arşiv</title>
+
+  <!-- Sekme ve ana ekran simgesi. apple-touch-icon PNG olmak zorunda: iOS
+       SVG kabul etmiyor, yoksa ana ekrana eklenince sayfanın ekran görüntüsünü
+       ikon yapıyordu. scripts/make-icons.js üretiyor. -->
+  <link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
+  <link rel="manifest" href="manifest.webmanifest">
+
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -52,7 +61,7 @@
       </button>
 
       <div class="brand">
-        <span class="brand-dot" id="brand-dot"></span>
+        <img class="brand-dot" id="brand-dot" src="favicon.png" alt="" width="26" height="26">
         <span class="brand-name" id="brand-name">Tasu Arşiv</span>
         <span class="brand-ver" id="brand-ver">v1.1</span>
       </div>
@@ -65,6 +74,8 @@
         <span class="add-label">Dosya Ekle</span>
       </button>
 
+      <button id="btn-theme" class="icon-btn" aria-label="Tema" title="Tema"></button>
+      <button id="btn-prefs" class="icon-btn" aria-label="Ayarlar" title="Ayarlar"></button>
       <button id="btn-refresh" class="icon-btn" aria-label="Yenile" title="Yenile">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
           <path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/>
@@ -110,8 +121,11 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
             <input id="media-search" type="search" placeholder="Dosya adında ara…" aria-label="Medyada ara">
           </label>
-          <button id="media-sort" class="pill">Yeni → eski</button>
-          <button id="media-select" class="pill">Seç</button>
+          <!-- Süzgeç ikonlarla: yazıya çevirmek gerekmiyor, hepsi tek bakışta.
+               Tür düğmeleri açık/kapalı, sıralama düğmesi sırayla değişir. -->
+          <button id="media-kind-image" class="icon-pill" data-kind="image" aria-label="Yalnız görseller" title="Yalnız görseller"></button>
+          <button id="media-kind-video" class="icon-pill" data-kind="video" aria-label="Yalnız videolar" title="Yalnız videolar"></button>
+          <button id="media-sort" class="icon-pill" aria-label="Sıralama" title="Sıralama"></button>
         </div>
 
         <div id="cat-bar" class="cat-bar"></div>
@@ -122,13 +136,14 @@
     <!-- İstatistik: sayfanın altında, ortalanmış, her zaman el altında. -->
     <div id="media-stats" class="stats-dock" hidden></div>
 
-    <!-- Seçim modu eylem çubuğu -->
+    <!-- Seçim eylem çubuğu. Yalnız en az bir dosya seçiliyken görünür; son
+         dosya seçimden çıkınca (ya da silinince) kendiliğinden kapanır. -->
     <div id="select-bar" class="select-bar" hidden>
       <span class="sel-count" id="sel-count">0 seçildi</span>
       <span class="grow"></span>
-      <button class="pill" data-act="all">Tümünü seç</button>
-      <button class="pill" data-act="cat">Kategoriye taşı</button>
-      <button class="pill" data-act="site">Siteye taşı</button>
+      <button class="pill" data-act="all">Tümü</button>
+      <button class="pill" data-act="cat">Kategori</button>
+      <button class="pill" data-act="site">Site</button>
       <button class="pill" data-act="share">Paylaş</button>
       <button class="pill danger" data-act="delete">Sil</button>
       <button class="pill" data-act="cancel">Vazgeç</button>

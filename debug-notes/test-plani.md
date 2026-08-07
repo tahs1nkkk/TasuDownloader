@@ -16,8 +16,8 @@ kök nedene oradan dönerim.
 **Elle deploy gerekmiyor.** Cloudflare'in Git entegrasyonu bağlı: dala push
 edildiği anda derleyip yayınlıyor. Her push iki adres üretiyor —
 
-- dal önizlemesi: `https://<dal-adı>-tasu-arsiv.lsatvofficial.workers.dev`
-- commit önizlemesi: `https://<hash>-tasu-arsiv.lsatvofficial.workers.dev`
+- dal önizlemesi: `https://<dal-adı>-tasu-arsiv.<hesabin>.workers.dev`
+- commit önizlemesi: `https://<hash>-tasu-arsiv.<hesabin>.workers.dev`
 
 Deploy durumu PR'daki Cloudflare yorumunda görünür. Elle gerekirse:
 `cd cloud/web && npx wrangler deploy`.
@@ -37,7 +37,7 @@ and Secrets). Kodda hiçbiri yazılı değil:
 | `SESSION_SECRET` | oturum çerezini imzalar |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth istemcisi |
 | `ALLOWED_EMAIL` | siteye girebilecek tek Google hesabı |
-| `SUPABASE_URL` | `https://jtfynrxryryfjiolyuat.supabase.co` |
+| `SUPABASE_URL` | `https://PROJE-REF.supabase.co` |
 | `SUPABASE_SERVICE_KEY` | Supabase service key (yalnız Worker'da) |
 
 R2 kovası `tasu-media` panelde açık olmalı; `wrangler.jsonc` onu `MEDIA` adıyla

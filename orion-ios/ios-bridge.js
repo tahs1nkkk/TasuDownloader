@@ -34,7 +34,7 @@
 
   /* ---------------------------------------------------------------- storage */
 
-  const SETTINGS_KEY = "rgRipsnipSettings";
+  const SETTINGS_KEY = "tasuDownloaderSettings";
 
   // Settings the phone cannot honour, forced on every read so no stale stored
   // value or popup edit can bring back a control that does not work on touch.

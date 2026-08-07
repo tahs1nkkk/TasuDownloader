@@ -20,6 +20,7 @@ import { readSession } from "./auth.js";
 import {
   DEFAULT_DRIVE, DEFAULT_SITE, buildKey, extOf, extType, keyFromPath, kindOf, parseKey, safeSlug, thumbKey
 } from "./keys.js";
+import { bytesPerSec, pace, paceUpload } from "./pace.js";
 
 // Ad çakışmasında sessizce ezmek veri kaybıdır; -1, -2 eklenir. Yalnız dosya
 // adı değişir, yol (drive/site) korunur.
@@ -60,7 +61,7 @@ async function listAll(env) {
   const objects = [];
   let cursor;
   for (;;) {
-    const page = await env.MEDIA.list({ cursor, limit: 1000 });
+    const page = await env.MEDIA.list({ cursor, limit: 1000, include: ["customMetadata"] });
     objects.push(...page.objects);
     if (!page.truncated) break;
     cursor = page.cursor;
@@ -81,10 +82,20 @@ function listMedia(objects, drive) {
       site: parts.site,
       size: object.size,
       mtime: object.uploaded.getTime(),
-      kind: kindOf(parts.file)
+      kind: kindOf(parts.file),
+      source: (object.customMetadata && object.customMetadata.source) || ""
     });
   }
   return rows.sort((a, b) => b.mtime - a.mtime);
+}
+
+// If-None-Match birden çok etiket taşıyabilir; "*" her şeyle eşleşir. Zayıf
+// önek (W/) karşılaştırmadan önce düşer.
+function etagMatches(header, etag) {
+  const strip = (t) => t.trim().replace(/^W\//, "");
+  if (header.trim() === "*") return true;
+  const mine = strip(etag);
+  return header.split(",").some((candidate) => strip(candidate) === mine);
 }
 
 // "bytes=..." başlığını R2 range seçeneğine çevirir.
@@ -97,9 +108,19 @@ function parseRange(header) {
   return { offset, length: Number(m[2]) - offset + 1 };        // bytes=N-M
 }
 
+// Bir anahtarın içeriği asla değişmez: aynı ada ikinci dosya gelirse freeKey()
+// yeni bir anahtar üretir, eskisinin baytlarına dokunulmaz. Bu yüzden "immutable"
+// dürüst bir söz — tarayıcı bir kez indirdiğini bir daha sormaz. Kaydırırken
+// yaşanan takılmanın ve her açılışta yeniden inen ızgaranın sebebi buydu.
+const FOREVER = "private, max-age=31536000, immutable";
+
 // share.js de kullanır: token'la gelen public ziyaretçiye aynı akış verilir.
 export async function streamMedia(env, key, request, method) {
   const name = key.slice(key.lastIndexOf("/") + 1);
+  const inm = request.headers.get("If-None-Match");
+  // Sınır varsa akış yavaşlatılır. 304'te gövde zaten yok, oraya dokunulmaz.
+  const bps = bytesPerSec(request, new URL(request.url));
+
   if (method === "HEAD") {
     const head = await env.MEDIA.head(key);
     if (!head) return json({ ok: false, error: "yok" }, 404);
@@ -108,7 +129,20 @@ export async function streamMedia(env, key, request, method) {
     if (!headers.get("Content-Type")) headers.set("Content-Type", extType(name));
     headers.set("Content-Length", String(head.size));
     headers.set("Accept-Ranges", "bytes");
+    headers.set("ETag", head.httpEtag);
+    headers.set("Cache-Control", FOREVER);
     return new Response(null, { status: 200, headers });
+  }
+
+  // Elindeki sürüm hâlâ geçerliyse tek bayt bile gönderme.
+  if (inm) {
+    const head = await env.MEDIA.head(key);
+    if (head && etagMatches(inm, head.httpEtag)) {
+      return new Response(null, {
+        status: 304,
+        headers: { ETag: head.httpEtag, "Cache-Control": FOREVER }
+      });
+    }
   }
 
   const range = parseRange(request.headers.get("Range"));
@@ -119,9 +153,8 @@ export async function streamMedia(env, key, request, method) {
   object.writeHttpMetadata(headers);
   if (!headers.get("Content-Type")) headers.set("Content-Type", extType(name));
   headers.set("Accept-Ranges", "bytes");
-  // Aynı bayt bir daha değişmez (ad çakışmasında yeni anahtar üretilir), o yüzden
-  // tarayıcı önbelleği uzun tutabilir — ızgarada gezinirken fark ediliyor.
-  headers.set("Cache-Control", "private, max-age=86400");
+  headers.set("ETag", object.httpEtag);
+  headers.set("Cache-Control", FOREVER);
 
   const total = object.size;
   if (range && object.range) {
@@ -138,11 +171,11 @@ export async function streamMedia(env, key, request, method) {
     }
     headers.set("Content-Range", `bytes ${offset}-${offset + length - 1}/${total}`);
     headers.set("Content-Length", String(length));
-    return new Response(object.body, { status: 206, headers });
+    return new Response(pace(object.body, bps), { status: 206, headers });
   }
 
   headers.set("Content-Length", String(total));
-  return new Response(object.body, { status: 200, headers });
+  return new Response(pace(object.body, bps), { status: 200, headers });
 }
 
 /* ------------------------------------------------------------------ toplu */
@@ -210,13 +243,24 @@ async function handleThumb(request, env, url) {
   const cacheKey = thumbKey(key);
 
   if (request.method === "GET") {
+    const inm = request.headers.get("If-None-Match");
+    if (inm) {
+      const head = await env.MEDIA.head(cacheKey);
+      if (head && etagMatches(inm, head.httpEtag)) {
+        return new Response(null, {
+          status: 304,
+          headers: { ETag: head.httpEtag, "Cache-Control": FOREVER }
+        });
+      }
+    }
     const object = await env.MEDIA.get(cacheKey);
     if (!object) return json({ ok: false, error: "yok" }, 404);
-    return new Response(object.body, {
+    return new Response(pace(object.body, bytesPerSec(request, url)), {
       headers: {
         "Content-Type": "image/jpeg",
         "Content-Length": String(object.size),
-        "Cache-Control": "private, max-age=604800"
+        "ETag": object.httpEtag,
+        "Cache-Control": FOREVER
       }
     });
   }
@@ -274,7 +318,14 @@ export async function handleMedia(request, env, url) {
                  parts.file);
     const finalKey = await freeKey(env, target);
     const leaf = finalKey.slice(finalKey.lastIndexOf("/") + 1);
-    await env.MEDIA.put(finalKey, request.body, { httpMetadata: { contentType: extType(leaf) } });
+    // Gövde yavaş okunursa gönderen taraf da yavaşlar: yükleme sınırı böyle işler.
+    const body = paceUpload(request, bytesPerSec(request, url));
+    // Kaynak etiketi (ör. "r/aww u/xyz" ya da "user niche") arşivde aramayla
+    // süzülebilsin diye customMetadata'da saklanır; boşsa yazılmaz.
+    const source = (url.searchParams.get("source") || "").trim().slice(0, 200);
+    const putOpts = { httpMetadata: { contentType: extType(leaf) } };
+    if (source) putOpts.customMetadata = { source };
+    await env.MEDIA.put(finalKey, body, putOpts);
     // name alanı eski istemcilerle uyum için duruyor; yenileri key kullanır.
     return json({ ok: true, key: finalKey, name: finalKey }, 201);
   }

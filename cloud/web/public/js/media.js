@@ -49,6 +49,7 @@ export function visible() {
   const catSet = S.cat ? descendants(S.cat) : null;
   const rows = S.media.filter((item) => {
     if (S.site && item.site !== S.site) return false;
+    if (S.kind && item.kind !== S.kind) return false;
     if (catSet && !catSet.has(catOf(item.key))) return false;
     if (needle && !item.name.toLocaleLowerCase("tr").includes(needle)) return false;
     return true;
@@ -67,11 +68,14 @@ export function visible() {
 function tab(id, label, brand, count) {
   const node = el("button", {
     class: `site-tab${S.site === id ? " on" : ""}`, type: "button",
-    style: `--tab-grad:${brand.grad};--tab-glow:${brand.glow}`,
+    // Arka plan sitenin kendi işaretinin bulanıklaştırılmış hâli (CSS'te
+    // filter: blur). Böylece her sekme rengini logosundan alıyor, üstüne ayrı
+    // bir dolgu kutusu koymaya gerek kalmıyor.
+    style: `--tab-bg:${brand.bg};--tab-glow:${brand.glow}`,
     title: label,
-    onclick: () => { S.site = id; S.picked.clear(); renderTabs(); renderGrid(); }
+    onclick: () => { S.site = id; S.picked.clear(); renderTabs(); renderGrid(); renderSelectBar(); }
   },
-    el("span", { class: "site-mark" }, brand.mark),
+    el("span", { class: "site-mark", html: brand.mark }),
     el("span", { class: "site-name" }, label),
     el("span", { class: "site-num" }, String(count))
   );
@@ -221,8 +225,17 @@ export function renderCats() {
   }, "+ Kategori"));
 }
 
-/* ------------------------------------------------------------- video kapağı */
+/* ----------------------------------------------------------------- kapaklar */
 
+// Izgara artık hiçbir zaman asıl dosyayı göstermiyor — yalnız /api/thumb.
+// Eskiden videolar kapak alıyor ama görseller tam boyuyla çiziliyordu: 200
+// piksellik bir kareye 8 MB'lık fotoğrafı indirip ölçekleyen tarayıcı hem ağı
+// hem de kaydırmayı boğuyordu. "Her açılışta yeniden iniyor" şikâyeti de
+// buradan geliyordu, çünkü tam boy dosyalar tarayıcı önbelleğine sığmıyordu.
+//
+// Kapak yoksa (404) tarayıcı bir kez üretip /api/thumb'a bırakır; ikinci
+// açılışta doğrudan gelir. Aynı anda en çok iki üretim çalışır.
+const THUMB_EDGE = 480;
 const queue = [];
 let running = 0;
 
@@ -234,7 +247,22 @@ function pump() {
   }
 }
 
-async function grabPoster(key) {
+function fitBox(width, height) {
+  const w = width || THUMB_EDGE;
+  const h = height || THUMB_EDGE;
+  const scale = Math.min(1, THUMB_EDGE / Math.max(w, h));
+  return { w: Math.max(1, Math.round(w * scale)), h: Math.max(1, Math.round(h * scale)) };
+}
+
+async function storeThumb(canvas, key) {
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.72));
+  if (!blob) throw new Error("kare alınamadı");
+  // Sunucuya bırakmak "en iyi çaba": başarısız olsa da kullanıcı kapağı görür.
+  fetch(thumbURL(key), { method: "PUT", credentials: "same-origin", body: blob }).catch(() => {});
+  return blob;
+}
+
+async function videoThumb(key) {
   const video = el("video", { preload: "metadata", muted: true, playsinline: true, crossorigin: "use-credentials" });
   video.src = mediaURL(key);
   await new Promise((resolve, reject) => {
@@ -248,28 +276,46 @@ async function grabPoster(key) {
     video.addEventListener("seeked", () => { clearTimeout(stop); resolve(); }, { once: true });
   });
 
-  const width = Math.min(480, video.videoWidth || 480);
-  const scale = width / (video.videoWidth || width);
+  const box = fitBox(video.videoWidth, video.videoHeight);
   const canvas = el("canvas");
-  canvas.width = width;
-  canvas.height = Math.max(1, Math.round((video.videoHeight || 270) * scale));
-  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+  canvas.width = box.w;
+  canvas.height = box.h;
+  canvas.getContext("2d").drawImage(video, 0, 0, box.w, box.h);
   video.src = "";
-
-  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.72));
-  if (!blob) throw new Error("kare alınamadı");
-  // Sunucuya bırakmak "en iyi çaba": başarısız olsa da kullanıcı kapağı görür.
-  fetch(thumbURL(key), { method: "PUT", credentials: "same-origin", body: blob }).catch(() => {});
-  return blob;
+  return storeThumb(canvas, key);
 }
 
-function wantPoster(key, img) {
+async function imageThumb(key) {
+  const source = await new Promise((resolve, reject) => {
+    const probe = new Image();
+    probe.decoding = "async";
+    probe.addEventListener("load", () => resolve(probe), { once: true });
+    probe.addEventListener("error", () => reject(new Error("görsel açılamadı")), { once: true });
+    probe.src = mediaURL(key);
+  });
+
+  const box = fitBox(source.naturalWidth, source.naturalHeight);
+  const canvas = el("canvas");
+  canvas.width = box.w;
+  canvas.height = box.h;
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(source, 0, 0, box.w, box.h);
+  return storeThumb(canvas, key);
+}
+
+function wantThumb(item, img) {
   queue.push(async () => {
     try {
-      const blob = await grabPoster(key);
-      img.src = URL.createObjectURL(blob);
+      const blob = item.kind === "video" ? await videoThumb(item.key) : await imageThumb(item.key);
+      const url = URL.createObjectURL(blob);
+      img.addEventListener("load", () => URL.revokeObjectURL(url), { once: true });
+      img.src = url;
     } catch {
-      img.replaceWith(el("div", { class: "fallback" }, "🎞"));
+      // Kapak üretilemedi (bozuk dosya, desteklenmeyen kodek). Görselde asıl
+      // dosyayı göstermek hiç göstermemekten iyi; videoda film şeridi kalsın.
+      if (item.kind === "image") img.src = mediaURL(item.key);
+      else img.replaceWith(el("div", { class: "fallback" }, "🎞"));
     }
   });
   pump();
@@ -284,23 +330,30 @@ function togglePick(key, node) {
 }
 
 function card(item, index) {
-  const node = el("button", {
+  const node = el("div", {
     class: `media-card${S.picked.has(item.key) ? " picked" : ""}`,
-    type: "button", title: item.name, dataset: { key: item.key },
-    onclick: () => {
-      if (S.selecting) togglePick(item.key, node);
+    title: item.name, dataset: { key: item.key },
+    // Ayrı bir "seçim modu" yok: karta basmak açar, sol üstteki tike basmak
+    // seçer. Bir şey seçiliyken kartın kendisi de seçime katılır — 200 dosyayı
+    // işaretlerken her seferinde küçük tiki bulmak işkenceydi.
+    onclick: (event) => {
+      if (event.target.closest(".check")) return;
+      if (S.picked.size) togglePick(item.key, node);
       else openViewer(visible(), index, onDeleted);
     }
   });
 
-  if (item.kind === "video") {
-    const img = el("img", { loading: "lazy", alt: "", src: thumbURL(item.key) });
-    img.addEventListener("error", () => { wantPoster(item.key, img); }, { once: true });
-    node.append(img, el("span", { class: "play-badge" }, el("span", { html: ICON.play })));
-  } else if (item.kind === "image") {
-    const img = el("img", { loading: "lazy", alt: "", src: mediaURL(item.key) });
-    img.addEventListener("error", () => { img.replaceWith(el("div", { class: "fallback" }, "🖼")); }, { once: true });
+  if (item.kind === "video" || item.kind === "image") {
+    // draggable="false": kapağı tutup çekince tarayıcı onu sürüklenen bir dosya
+    // sanıyor, ızgara altından kayıyor ve yükleme penceresi açılıyordu.
+    const img = el("img", {
+      loading: "lazy", decoding: "async", alt: "", draggable: "false", src: thumbURL(item.key)
+    });
+    img.addEventListener("error", () => { wantThumb(item, img); }, { once: true });
     node.append(img);
+    if (item.kind === "video") {
+      node.append(el("span", { class: "play-badge" }, el("span", { html: ICON.play })));
+    }
   } else {
     node.append(el("div", { class: "fallback" }, "📄"));
   }
@@ -308,14 +361,17 @@ function card(item, index) {
   node.append(
     el("span", { class: "media-size" }, fmtBytes(item.size)),
     el("span", { class: "media-name" }, item.name),
-    el("span", { class: "check", html: ICON.check })
+    el("button", {
+      class: "check", type: "button", title: "Seç", "aria-label": "Seç", html: ICON.check,
+      onclick: (event) => { event.stopPropagation(); togglePick(item.key, node); }
+    })
   );
   return node;
 }
 
 function renderStats(rows) {
   const dock = $("#media-stats");
-  if (S.view !== "media" || S.selecting) { dock.hidden = true; return; }
+  if (S.view !== "media" || S.picked.size) { dock.hidden = true; return; }
   const images = rows.filter((r) => r.kind === "image").length;
   const videos = rows.filter((r) => r.kind === "video").length;
   const bytes = rows.reduce((sum, r) => sum + (r.size || 0), 0);
@@ -329,13 +385,38 @@ function renderStats(rows) {
   dock.hidden = false;
 }
 
+// Sonsuz kaydırma yalnız yeni kartları ekler. Eskiden her sayfa dolduğunda
+// ızgara komple silinip baştan çiziliyordu: 1200 dosyada onuncu sayfa 1200 kart
+// demekti, kaydırma her seferinde bir saniye donuyordu.
+function mountSentinel(root, rows) {
+  if (observer) { observer.disconnect(); observer = null; }
+  if (sentinel) { sentinel.remove(); sentinel = null; }
+  if (shown >= rows.length) return;
+
+  sentinel = el("div", { class: "grid-sentinel" });
+  root.append(sentinel);
+  observer = new IntersectionObserver((entries) => {
+    if (!entries.some((e) => e.isIntersecting)) return;
+    const from = shown;
+    shown = Math.min(rows.length, shown + PAGE);
+    const batch = document.createDocumentFragment();
+    for (let i = from; i < shown; i += 1) batch.append(card(rows[i], i));
+    sentinel.before(batch);
+    mountSentinel(root, rows);
+  }, { rootMargin: "800px" });
+  observer.observe(sentinel);
+}
+
 export function renderGrid(keepShown = false) {
   const root = $("#media-root");
   const rows = visible();
-  if (!keepShown) shown = 0;
+  const target = keepShown ? Math.max(PAGE, Math.min(shown, rows.length)) : PAGE;
   clear(root);
 
   if (!rows.length) {
+    if (observer) { observer.disconnect(); observer = null; }
+    sentinel = null;
+    shown = 0;
     root.append(el("div", { class: "empty" },
       el("b", {}, S.media.length ? "Bu süzgeçte dosya yok" : "Arşiv boş"),
       S.media.length ? "Site sekmesini ya da aramayı değiştir." : "Telefondan indirdiklerin buraya düşer."));
@@ -343,21 +424,11 @@ export function renderGrid(keepShown = false) {
     return;
   }
 
-  shown = Math.min(rows.length, Math.max(shown, PAGE));
-  for (let i = 0; i < shown; i += 1) root.append(card(rows[i], i));
-
-  if (observer) observer.disconnect();
-  if (shown < rows.length) {
-    sentinel = el("div", { style: "grid-column:1/-1;height:1px" });
-    root.append(sentinel);
-    observer = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) {
-        shown = Math.min(rows.length, shown + PAGE);
-        renderGrid(true);
-      }
-    }, { rootMargin: "600px" });
-    observer.observe(sentinel);
-  }
+  shown = Math.min(rows.length, target);
+  const batch = document.createDocumentFragment();
+  for (let i = 0; i < shown; i += 1) batch.append(card(rows[i], i));
+  root.append(batch);
+  mountSentinel(root, rows);
 
   renderStats(rows);
 }
@@ -373,10 +444,15 @@ function onDeleted(keys) {
     if (gone.has(node.dataset.key)) {
       node.classList.add("leaving");
       setTimeout(() => node.remove(), 300);
+      // Gösterilen kart sayısı da düşmeli: düşmezse sonsuz kaydırma bir sonraki
+      // sayfayı kaydırılmış indislerden başlatıyor ve arada dosya atlanıyordu.
+      shown = Math.max(0, shown - 1);
     }
   }
   renderTabs();
-  renderStats(visible());
+  // Seçili son dosya da gittiyse alttaki eylem çubuğu kapanmalı; eskiden
+  // ekranda asılı kalıyordu (renderStats'ı da bu çağrı yeniliyor).
+  renderSelectBar();
   updateChooserCount();
 }
 
@@ -387,10 +463,15 @@ export function updateChooserCount() {
 
 /* ----------------------------------------------------------------- seçim */
 
+// Seçim "mod" değil, durum: çubuk yalnız en az bir dosya seçiliyken var.
+// Eskiden ayrı bir Seç düğmesi modu açıyordu ve son dosya silindiğinde mod
+// açık kaldığı için çubuk boş boş ekranda kalıyordu.
 export function renderSelectBar() {
   const bar = $("#select-bar");
-  bar.hidden = !S.selecting;
-  document.body.classList.toggle("selecting", S.selecting);
+  const active = S.picked.size > 0;
+  S.selecting = active;
+  bar.hidden = !active;
+  document.body.classList.toggle("selecting", active);
   $("#sel-count").textContent = `${S.picked.size} seçildi`;
   renderStats(visible());
 }
@@ -421,13 +502,12 @@ async function pickCategory(title) {
 async function pickSite(title) {
   return dialog({
     title,
-    text: "Dosya R2'de yeni yola taşınır; bağlantılar korunur.",
     build: (box, close) => {
       const tree = el("div", { class: "tree" });
       for (const site of SITE_ORDER) {
         const brand = siteBrand(site);
         tree.append(el("button", { type: "button", onclick: () => close(site) },
-          el("span", { class: "site-mark", style: `background:${brand.grad}` }, brand.mark),
+          el("span", { class: "site-mark", html: brand.mark }),
           site === "Other" ? "Diğer" : site));
       }
       box.append(tree);
@@ -444,10 +524,9 @@ async function bulk(action) {
   }
 
   if (action === "cancel") {
-    S.selecting = false; S.picked.clear();
-    renderSelectBar(); renderGrid(true);
-    $("#media-select").classList.remove("on");
-    $("#media-select").textContent = "Seç";
+    S.picked.clear();
+    for (const node of $$("#media-root .media-card")) node.classList.remove("picked");
+    renderSelectBar();
     return;
   }
 
@@ -536,28 +615,46 @@ export async function load() {
   updateChooserCount();
 }
 
+const SORTS = [
+  { id: "new", icon: "sortNew", label: "Yeni → eski" },
+  { id: "old", icon: "sortOld", label: "Eski → yeni" },
+  { id: "big", icon: "sortBig", label: "Büyükten küçüğe" },
+  { id: "name", icon: "sortName", label: "Ada göre" }
+];
+
 export function wire() {
   const search = $("#media-search");
   search.addEventListener("input", () => { S.query = search.value.trim(); renderGrid(); });
 
   const sort = $("#media-sort");
-  const labels = { new: "Yeni → eski", old: "Eski → yeni", big: "Büyükten küçüğe", name: "Ada göre" };
-  const cycle = ["new", "old", "big", "name"];
+  const paintSort = () => {
+    const current = SORTS.find((s) => s.id === S.sort) || SORTS[0];
+    sort.innerHTML = ICON[current.icon];
+    sort.title = current.label;
+    sort.setAttribute("aria-label", `Sıralama: ${current.label}`);
+  };
   sort.addEventListener("click", () => {
-    S.sort = cycle[(cycle.indexOf(S.sort) + 1) % cycle.length];
-    sort.textContent = labels[S.sort];
+    const at = SORTS.findIndex((s) => s.id === S.sort);
+    S.sort = SORTS[(at + 1) % SORTS.length].id;
+    paintSort();
     renderGrid();
   });
+  paintSort();
 
-  const select = $("#media-select");
-  select.addEventListener("click", () => {
-    S.selecting = !S.selecting;
-    if (!S.selecting) S.picked.clear();
-    select.classList.toggle("on", S.selecting);
-    select.textContent = S.selecting ? "Seçimi bitir" : "Seç";
-    renderSelectBar();
-    renderGrid(true);
-  });
+  // Tür süzgeci: iki bağımsız düğme, ikisi de kapalıysa hepsi görünür.
+  for (const button of $$("#view-media [data-kind]")) {
+    const kind = button.dataset.kind;
+    button.innerHTML = ICON[kind];
+    button.addEventListener("click", () => {
+      S.kind = S.kind === kind ? "" : kind;
+      for (const other of $$("#view-media [data-kind]")) {
+        other.classList.toggle("on", other.dataset.kind === S.kind);
+      }
+      S.picked.clear();
+      renderSelectBar();
+      renderGrid();
+    });
+  }
 
   for (const button of $$("#select-bar [data-act]")) {
     button.addEventListener("click", () => bulk(button.dataset.act));

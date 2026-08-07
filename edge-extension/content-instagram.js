@@ -5,6 +5,7 @@
 
   const ALL_ID = "rg-ig-all";
   const ONE_ID = "rg-ig-one";
+  const WEB_ID = "rg-ig-web";
   const STATUS_ID = "rg-ig-status";
   const MENU_ID = "rg-ig-menu";
   const { SETTINGS_KEY, DEFAULT_SETTINGS } = globalThis.RG_SETTINGS;
@@ -118,6 +119,19 @@
       all.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); const c = ctx; console.info("[rg-ig] TÜMÜ/GÖRSEL buton tıklandı", c); withFolder(e.currentTarget, folder => (c && c.kind === "highlight" ? doStoryImage(e.currentTarget, folder) : doAll(e.currentTarget, folder))); });
       document.documentElement.appendChild(all);
     }
+    // Özellik D — indirme butonunun altına "web listesine ekle". Yalnızca gerçek
+    // gönderilerde (post/reel); ızgara küçük görsellerinde/story/avatarda değil.
+    if (!document.getElementById(WEB_ID) && window.rgMakeWebIconButton) {
+      const web = window.rgMakeWebIconButton(() => {
+        const media = web.__igMedia;
+        const url = media ? postPermalinkIG(media) : location.href;
+        return { url, title: document.title };
+      }, { size: clamp(Number(settings.buttonSize) || 44, 28, 72) });
+      web.id = WEB_ID;
+      web.style.position = "fixed";
+      web.style.display = "none";
+      document.documentElement.appendChild(web);
+    }
   }
 
   // ── Folder chooser menu ───────────────────────────────────────────────────
@@ -186,12 +200,34 @@
     return id.toString();
   }
 
+  // Every "a post link" query in this file goes through the same selector.
+  const POST_LINK_SEL = "a[href*='/p/'], a[href*='/reel/'], a[href*='/reels/'], a[href*='/tv/']";
+
+  // A naive "/p/ or /reel/" search also matches the page's own sub-sections:
+  // /p/<code>/liked_by/ (the likes list) and /reels/audio/<id>/ (the audio page)
+  // are what an article's FIRST such link often points at. A real shortcode is
+  // 11 chars of the base64 alphabet, so length plus this list separates the post
+  // from the section around it (KÖK-LİSTE-ETİKET).
+  const NOT_A_SHORTCODE = /^(audio|liked_by|comments|tagged|videos|saved|new|explore)$/i;
+
   function shortcodeFromHref(href) {
     try {
       const p = new URL(href, location.href);
       const m = p.pathname.match(/\/(?:p|reel|reels|tv)\/([^/?#]+)/i);
-      return m ? m[1] : "";
+      const code = m ? m[1] : "";
+      if (!code || code.length < 10 || NOT_A_SHORTCODE.test(code)) return "";
+      return code;
     } catch { return ""; }
+  }
+
+  // "p", "reel" or "tv" — the shape the canonical address should take. /reels/
+  // (plural) is the feed route; a single reel lives at /reel/.
+  function postKindFromHref(href) {
+    try {
+      const m = new URL(href, location.href).pathname.match(/\/(p|reel|reels|tv)\/[^/?#]+/i);
+      const kind = m ? m[1].toLowerCase() : "p";
+      return kind === "reels" ? "reel" : kind;
+    } catch { return "p"; }
   }
 
   function currentUsername() {
@@ -516,15 +552,17 @@
   function positionButtons() {
     const one = document.getElementById(ONE_ID);
     const all = document.getElementById(ALL_ID);
+    const web = document.getElementById(WEB_ID);
     if (!one || !all) return;
 
-    const hide = () => { one.style.display = "none"; all.style.display = "none"; };
+    const hideWeb = () => { if (web) web.style.display = "none"; };
+    const hide = () => { one.style.display = "none"; all.style.display = "none"; hideWeb(); };
     if (!settings.instagramButtons || !ctx) { hide(); return; }
 
     const size = clamp(Number(settings.buttonSize) || 44, 28, 72);
     for (const b of [one, all]) { b.style.width = `${size}px`; b.style.height = `${size}px`; }
 
-    let left, top, showAll = false;
+    let left, top, showAll = false, webMedia = null;
 
     if (ctx.kind === "highlight") {
       const hr = storyHeaderRect();
@@ -542,6 +580,7 @@
       const ar = art.getBoundingClientRect();
       const mediaBox = visibleMediaBoxIn(art);
       const media = mediaBox?.m || visibleMediaIn(art) || ctx.anchor;
+      webMedia = media;
       const mr = (media || art).getBoundingClientRect();
       // Skip tiny thumbnails (notification/comment previews aren't real posts).
       if (mr.width < 70 || mr.height < 70) { hide(); return; }
@@ -573,6 +612,19 @@
     } else {
       all.style.display = "none";
     }
+
+    // Web listesi butonu — yalnız gerçek gönderi (post/reel), ızgara değil.
+    // İndirme butonunun hemen altında. Özellik D, kapsam: "sadece ana medya".
+    if (web && ctx.kind === "post" && !ctx.grid && webMedia) {
+      web.style.width = `${size}px`;
+      web.style.height = `${size}px`;
+      web.style.left = `${left}px`;
+      web.style.top = `${clamp(top + size + 8, 8, window.innerHeight - size - 8)}px`;
+      web.style.display = "grid";
+      web.__igMedia = webMedia;
+    } else {
+      hideWeb();
+    }
   }
 
   function scheduleHide() {
@@ -580,18 +632,30 @@
     hideTimer = setTimeout(() => {
       const one = document.getElementById(ONE_ID);
       const all = document.getElementById(ALL_ID);
+      const web = document.getElementById(WEB_ID);
       const menu = document.getElementById(MENU_ID);
+      const webMenu = document.getElementById("rg-web-menu");
       // :hover never matches on touch, so this would hide the buttons the user
       // is about to tap. There is no pointer to leave, so nothing to hide.
       if (globalThis.RG_SETTINGS.isTouchDevice()) return;
-      if (one?.matches(":hover") || all?.matches(":hover") || menu) return;
+      if (one?.matches(":hover") || all?.matches(":hover") || web?.matches(":hover") || menu || webMenu) return;
       ctx = null;
       if (one) one.style.display = "none";
       if (all) all.style.display = "none";
+      if (web) web.style.display = "none";
     }, 110);
   }
 
   // ── Downloads ─────────────────────────────────────────────────────────────
+
+  // Kaynak etiketi — özellik A: Instagram'da yalnız kullanıcı adı. İndirme
+  // bağlamındaki (ctx) kullanıcıyı; yoksa profil URL'sinden (/{ad}/) türet.
+  function currentIgUser() {
+    if (ctx && ctx.username) return String(ctx.username).replace(/^@/, "");
+    const m = location.pathname.match(/^\/([A-Za-z0-9._]+)\/?$/);
+    if (m && !/^(p|reel|reels|explore|stories|tv|accounts|direct|about)$/i.test(m[1])) return m[1];
+    return "";
+  }
 
   function sendDownload(urls, downloadAll, folder) {
     const list = (urls || []).filter(Boolean);
@@ -614,6 +678,7 @@
             allowRipsnipFallback: false,
             skipReachability: true,
             folderName: folder || "",
+            source: currentIgUser(),
             downloadPath: settings.downloadPath || DEFAULT_SETTINGS.downloadPath
           },
           (res) => {
@@ -878,28 +943,61 @@
   // post permalink, not the bare domain (KÖK-LİSTE).
 
   function postScopeFor(media) {
-    return media.closest("article")
-      || media.closest("a[href*='/p/'], a[href*='/reel/'], a[href*='/reels/'], a[href*='/tv/']")
-      || media;
+    return media.closest("article") || media.closest(POST_LINK_SEL) || media;
+  }
+
+  // Every post link inside the media's post, own link last — the first one that
+  // yields a real shortcode wins.
+  function postLinksFor(media) {
+    const scope = media.closest("article") || media;
+    const links = [...(scope.querySelectorAll?.(POST_LINK_SEL) || [])];
+    const own = media.closest(POST_LINK_SEL);
+    if (own && !links.includes(own)) links.push(own);
+    return links;
   }
 
   function shortcodeForMedia(media) {
     const pageSc = /\/(?:p|reel|reels|tv)\/[^/?#]/i.test(location.pathname)
       ? shortcodeFromHref(location.href) : "";
     if (pageSc) return pageSc;
-    const scope = media.closest("article") || media;
-    const link = scope.querySelector?.("a[href*='/p/'], a[href*='/reel/'], a[href*='/reels/'], a[href*='/tv/']")
-      || media.closest("a[href*='/p/'], a[href*='/reel/'], a[href*='/reels/'], a[href*='/tv/']");
-    return (link && shortcodeFromHref(link.href)) || shortcodeFromHref(location.href) || "";
+    for (const link of postLinksFor(media)) {
+      const sc = shortcodeFromHref(link.href);
+      if (sc) return sc;
+    }
+    return shortcodeFromHref(location.href) || "";
   }
 
+  // The post's author, read from the post header. It turns the saved address
+  // into instagram.com/<user>/p/<code>/, which the list reads as "@user | post"
+  // rather than a bare "post" — the same label the web archive shows.
+  function authorForMedia(media) {
+    const scope = media.closest("article") || document;
+    for (const a of scope.querySelectorAll?.("a[href^='/']") || []) {
+      const seg = (a.getAttribute("href") || "").split("/").filter(Boolean);
+      if (seg.length !== 1) continue;
+      if (/^(explore|reels|reel|direct|stories|accounts|p|tv|notifications)$/i.test(seg[0])) continue;
+      return seg[0];
+    }
+    return profileUsername();
+  }
+
+  // The canonical post address, never the sub-page a tile happens to link to.
   function postPermalinkIG(media) {
-    const scope = media.closest("article") || media;
-    const link = scope.querySelector?.("a[href*='/p/'], a[href*='/reel/'], a[href*='/reels/'], a[href*='/tv/']")
-      || media.closest("a[href*='/p/'], a[href*='/reel/'], a[href*='/reels/'], a[href*='/tv/']");
-    if (link) { try { return new URL(link.getAttribute("href"), location.href).href; } catch { /* fall through */ } }
-    const sc = shortcodeForMedia(media);
-    return sc ? `https://www.instagram.com/p/${sc}/` : location.href;
+    let kind = "p";
+    let sc = "";
+    for (const link of postLinksFor(media)) {
+      const found = shortcodeFromHref(link.href);
+      if (found) { sc = found; kind = postKindFromHref(link.href); break; }
+    }
+    if (!sc) {
+      sc = shortcodeForMedia(media);
+      if (sc) kind = postKindFromHref(location.href);
+    }
+    if (!sc) return location.href;
+    const user = authorForMedia(media);
+    return user
+      ? `https://www.instagram.com/${user}/${kind}/${sc}/`
+      : `https://www.instagram.com/${kind}/${sc}/`;
   }
 
   async function resolveMediaIG(media) {

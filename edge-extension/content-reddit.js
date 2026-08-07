@@ -8,6 +8,7 @@
   const BUTTON_CLASS = "rg-downloader-reddit-button";
   const MULTI_BUTTON_CLASS = "rg-downloader-reddit-multi-button";
   const OVERLAY_ID = "rg-downloader-reddit-overlay";
+  const WEB_BUTTON_ID = "rg-downloader-reddit-web"; // özellik D: "web listesi"
   const STATUS_ID = "rg-downloader-reddit-status";
   let settings = { ...DEFAULT_SETTINGS };
   let statusTimer = null;
@@ -82,7 +83,13 @@
   }
 
   function installStyle() {
-    if (document.getElementById("rg-downloader-reddit-style")) return;
+    if (document.getElementById("rg-downloader-reddit-style")) {
+      // Stil zaten var ama butonlar bir postla birlikte DOM'dan sökülmüş
+      // olabilir (Reddit akışı ekran dışı postları geri dönüştürür) — bug 7:
+      // "kaydırdıktan sonra buton çıkmıyor". Butonları her hâlükârda tazele.
+      ensureButtons();
+      return;
+    }
     const style = document.createElement("style");
     style.id = "rg-downloader-reddit-style";
     style.textContent = `
@@ -184,31 +191,59 @@
     status.dataset.level = "idle";
     document.documentElement.appendChild(status);
 
-    const single = document.createElement("button");
-    single.id = OVERLAY_ID;
-    single.type = "button";
-    single.className = BUTTON_CLASS;
-    single.title = "Download original image";
-    single.setAttribute("aria-label", "Download original image");
-    single.innerHTML = downloadIconSvg();
-    single.addEventListener("pointerdown", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-    });
-    single.addEventListener("click", runOverlayImageDownload);
+    ensureButtons();
+  }
 
-    const multi = document.createElement("button");
-    multi.type = "button";
-    multi.className = MULTI_BUTTON_CLASS;
-    multi.title = "Download all images in this post";
-    multi.setAttribute("aria-label", "Download all images in this post");
-    multi.innerHTML = multiIconSvg();
-    multi.addEventListener("pointerdown", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-    });
-    multi.addEventListener("click", runOverlayMultiDownload);
-    document.documentElement.append(single, multi);
+  // Overlay butonları tekildir; updateOverlayButtons onları etkin görselin post
+  // kökünün içine taşır. Reddit akışı o postu ekran dışına çıkınca DOM'dan
+  // söküp yok edebilir — böylece butonlar da yok olur ve "kaydırdıktan sonra
+  // buton çıkmıyor" (bug 7). Bu yüzden yalnızca canlı belgede bağlı değillerse
+  // yeniden yaratılırlar (getElementById kopuk düğümü bulamaz → null → yenile).
+  function ensureButtons() {
+    if (!document.getElementById(OVERLAY_ID)) {
+      const single = document.createElement("button");
+      single.id = OVERLAY_ID;
+      single.type = "button";
+      single.className = BUTTON_CLASS;
+      single.title = "Download original image";
+      single.setAttribute("aria-label", "Download original image");
+      single.innerHTML = downloadIconSvg();
+      single.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      single.addEventListener("click", runOverlayImageDownload);
+      document.documentElement.appendChild(single);
+    }
+
+    const existingMulti = document.querySelector(`.${MULTI_BUTTON_CLASS}`);
+    if (!existingMulti || !existingMulti.isConnected) {
+      const multi = document.createElement("button");
+      multi.type = "button";
+      multi.className = MULTI_BUTTON_CLASS;
+      multi.title = "Download all images in this post";
+      multi.setAttribute("aria-label", "Download all images in this post");
+      multi.innerHTML = multiIconSvg();
+      multi.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      multi.addEventListener("click", runOverlayMultiDownload);
+      document.documentElement.appendChild(multi);
+    }
+
+    // Özellik D: tek görsel butonunun ALTINDA "web listesi" butonu. Tekildir,
+    // updateOverlayButtons onu etkin görselin post köküne taşıyıp konumlar.
+    if (window.rgMakeWebIconButton && (!document.getElementById(WEB_BUTTON_ID) || !document.getElementById(WEB_BUTTON_ID).isConnected)) {
+      const web = window.rgMakeWebIconButton(() => {
+        const img = web.__rgDownloaderImage;
+        return { url: postPermalink(img) || location.href, title: postTitle(img) || document.title };
+      }, { size: clamp(Number(settings.buttonSize) || 44, 28, 72) });
+      web.id = WEB_BUTTON_ID;
+      web.style.position = "absolute";
+      web.style.display = "none";
+      document.documentElement.appendChild(web);
+    }
   }
 
   function isProfileAvatar(img) {
@@ -488,10 +523,12 @@
     const single = document.getElementById(OVERLAY_ID);
     const multi = document.querySelector(`.${MULTI_BUTTON_CLASS}`);
     if (!single || !multi) return;
+    const web = document.getElementById(WEB_BUTTON_ID);
 
     const hideButtons = () => {
       single.style.display = "none";
       multi.style.display = "none";
+      if (web) web.style.display = "none";
       delete single.dataset.rgVisible;
       delete multi.dataset.rgVisible;
     };
@@ -527,6 +564,7 @@
     if (single.parentElement !== targetRoot || multi.parentElement !== targetRoot) {
       targetRoot.append(single, multi);
     }
+    if (web && web.parentElement !== targetRoot) targetRoot.append(web);
 
     const size = clamp(Number(settings.buttonSize) || 44, 28, 72);
     const gap = 8;
@@ -543,6 +581,14 @@
     delete single.dataset.rgVisible;
     single.__rgDownloaderImage = img;
     single.__rgDownloaderRoot = imageRoot(img);
+
+    // Web listesi butonu tam tek görsel butonunun altında (özellik D).
+    if (web) {
+      web.style.left = `${left}px`;
+      web.style.top = `${clamp(top + size + gap, 8, maxTop)}px`;
+      web.style.display = "grid";
+      web.__rgDownloaderImage = img;
+    }
 
     multi.style.left = `${clamp(left + size + gap, 8, maxLeft)}px`;
     multi.style.top = `${top}px`;
@@ -751,7 +797,7 @@
       if (!urls.length) throw new Error("Original image not found.");
       const folder = window.rgChooseFolder ? await window.rgChooseFolder() : "";
       if (folder === null) return;
-      await sendDirectDownload(urls, { folderName: folder });
+      await sendDirectDownload(urls, { folderName: folder, source: postSource(activeImg) });
     } catch (error) {
       setStatus(toErrorCode(error), "error");
     } finally {
@@ -776,7 +822,7 @@
       if (!urls.length) throw new Error("Original image not found.");
       const folder = window.rgChooseFolder ? await window.rgChooseFolder() : "";
       if (folder === null) return;
-      await sendDirectDownload(urls, { downloadAll: true, folderName: folder });
+      await sendDirectDownload(urls, { downloadAll: true, folderName: folder, source: postSource(multiRoot) });
     } catch (error) {
       setStatus(toErrorCode(error), "error");
     } finally {
@@ -802,7 +848,7 @@
       if (!urls.length) throw new Error("Original image not found.");
       const folder = window.rgChooseFolder ? await window.rgChooseFolder() : "";
       if (folder === null) return;
-      await sendDirectDownload(urls, { folderName: folder });
+      await sendDirectDownload(urls, { folderName: folder, source: postSource(img) });
     } catch (error) {
       setStatus(toErrorCode(error), "error");
     } finally {
@@ -827,7 +873,7 @@
       if (!urls.length) throw new Error("Original image not found.");
       const folder = window.rgChooseFolder ? await window.rgChooseFolder() : "";
       if (folder === null) return;
-      await sendDirectDownload(urls, { downloadAll: true, folderName: folder });
+      await sendDirectDownload(urls, { downloadAll: true, folderName: folder, source: postSource(root) });
     } catch (error) {
       setStatus(toErrorCode(error), "error");
     } finally {
@@ -1077,7 +1123,15 @@
     function doSearch() {
       saveFromPanel();
       if (!spSanitize(spUsername)) { elUser().focus(); return; }
-      const active = Object.entries(spProviders).filter(([, v]) => v).map(([k]) => k);
+      let active = Object.entries(spProviders).filter(([, v]) => v).map(([k]) => k);
+      // In the app every OPEN_TAB navigates the one and only WebView, so firing
+      // several at once makes them stomp each other — the profile search "did
+      // nothing" because the last provider (or a web-search page) replaced the
+      // one the user wanted. There, open a single tab, preferring Reddit itself.
+      const nativeApp = typeof window.rgChooseFolder === "function" || globalThis.__rgNativeBridgeLoaded === true;
+      if (nativeApp && active.length > 1) {
+        active = [active.includes("reddit") ? "reddit" : active.includes("old") ? "old" : active[0]];
+      }
       for (const p of active) {
         const url = spBuildUrl(spUsername, spSubreddit, p);
         if (url) chrome.runtime.sendMessage({ type: "OPEN_TAB", url });
@@ -1140,10 +1194,85 @@
 
   function postTitle(el) {
     const post = postContainer(el);
-    const attr = post?.getAttribute?.("post-title");
-    if (attr) return attr.trim();
-    const node = post?.querySelector?.("[slot='title'], h1, h3");
-    return node?.textContent?.trim() || "";
+    const heading = (post?.getAttribute?.("post-title") || "").trim()
+      || post?.querySelector?.("[slot='title'], h1, h3")?.textContent?.trim()
+      || post?.querySelector?.("a[href*='/comments/']")?.textContent?.trim()
+      || "";
+    // The saved list note wants the post's own words, not just the headline —
+    // "listeye kaydederken postun açıklama yazısını alsın". Reddit keeps the body
+    // in a text-body slot; append it when it adds something the title doesn't.
+    const body = post?.querySelector?.("[slot='text-body'], [data-post-click-location='text-body'], [id$='-post-rtjson-content']")
+      ?.textContent?.trim() || "";
+    if (body && body !== heading) {
+      const extra = body.replace(/\s+/g, " ").slice(0, 280);
+      return heading ? `${heading} — ${extra}` : extra;
+    }
+    return heading;
+  }
+
+  // Kaynak etiketi — özellik A: "her sitede hangi kullanıcıdan indirdiysek"
+  // arşivde aramayla süzülebilsin. Reddit'te hem subreddit hem kullanıcı:
+  // "r/<sub> u/<user>". shreddit-post öznitelikleri; yoksa permalink'ten türet.
+  function postSource(el) {
+    const post = postContainer(el);
+    let sub = "";
+    let user = "";
+    if (post && post.getAttribute) {
+      sub = (post.getAttribute("subreddit-prefixed-name") || post.getAttribute("subreddit-name") || "").replace(/^\/?r\//i, "");
+      user = (post.getAttribute("author") || "").replace(/^\/?u\//i, "");
+    }
+    const permalink = postPermalink(el);
+    if (!sub) {
+      const m = /\/r\/([^/]+)/i.exec(permalink);
+      if (m) sub = m[1];
+    }
+    if (!user) {
+      const a = post && post.querySelector && post.querySelector("a[href*='/user/'], a[href*='/u/']");
+      const m = a && /\/(?:user|u)\/([^/?#]+)/i.exec(a.getAttribute("href") || "");
+      if (m) user = m[1];
+    }
+    const parts = [];
+    if (sub) parts.push(`r/${sub.replace(/[^A-Za-z0-9_-]/g, "")}`);
+    if (user) parts.push(`u/${user.replace(/[^A-Za-z0-9_-]/g, "")}`);
+    return parts.join(" ");
+  }
+
+  // A RedGifs watch URL from an embed's src/href (Reddit renders RedGifs posts
+  // as an <iframe src=".../ifr/{slug}"> or an embed carrying a /watch/ link).
+  function redgifsWatchFromEmbed(value) {
+    const m = String(value || "").match(/redgifs\.com\/(?:ifr|watch)\/([a-z0-9]+)/i);
+    return m ? `https://www.redgifs.com/watch/${m[1].toLowerCase()}` : "";
+  }
+
+  // Every RedGifs embed on the page, one descriptor each. The download routes
+  // through the background's RedGifs resolver via fallbackSourceUrl (the same
+  // path the RedGifs site itself uses), so "RedGifs embed algılanmıyor" and the
+  // animated-gif posts behind those embeds ("gif algılanmıyor") both resolve.
+  function redgifsEmbedItems(seen) {
+    const out = [];
+    const nodes = [
+      ...deepQueryAll("iframe[src*='redgifs.com']"),
+      ...deepQueryAll("a[href*='redgifs.com/watch/'], a[href*='redgifs.com/ifr/']")
+    ];
+    for (const node of nodes) {
+      const watchUrl = redgifsWatchFromEmbed(node.getAttribute?.("src") || node.getAttribute?.("href"));
+      if (!watchUrl) continue;
+      const post = postContainer(node) || node;
+      if (seen.has(post)) continue;
+      const rect = node.getBoundingClientRect();
+      if (rect.width < 120 || rect.height < 120) continue;
+      if (onScreenArea(rect) < 10000) continue;
+      seen.add(post);
+      const embedSource = postSource(node);
+      out.push({
+        el: node, kind: "video", src: "",
+        permalink: postPermalink(node), title: postTitle(node),
+        // Özellik C: Reddit içindeki redgifs embed'i sunucuya "RedGifs" olarak
+        // yazılsın (reddit değil). site override arka planda URL'den türeteni ezer.
+        resolve: () => sendDirectDownload([], { fallbackSourceUrl: watchUrl, site: "RedGifs", source: embedSource }).catch(() => {})
+      });
+    }
+    return out;
   }
 
   // How much of the element is actually on screen — a carousel's off-screen
@@ -1157,6 +1286,13 @@
   window.__rgSiteName = "reddit.com";
   window.__rgCollectMedia = () => {
     if (!settings.redditImages) return [];
+    const out = [];
+    const seen = new Set();
+
+    // RedGifs embeds first, so their post is claimed before the image scan can
+    // frame the embed's poster thumbnail as a still image.
+    for (const item of redgifsEmbedItems(seen)) out.push(item);
+
     // One media per post: the largest currently-visible candidate image wins,
     // which in an open gallery is exactly the slide the user is looking at.
     const byPost = new Map();
@@ -1164,10 +1300,10 @@
       const area = onScreenArea(img.getBoundingClientRect());
       if (area < 10000) continue;
       const post = postContainer(img);
+      if (seen.has(post)) continue;
       const prev = byPost.get(post);
       if (!prev || area > prev.area) byPost.set(post, { img, area });
     }
-    const out = [];
     for (const { img } of byPost.values()) {
       const urls = collectImageUrls(imageRoot(img), img);
       out.push({
@@ -1178,7 +1314,7 @@
         title: postTitle(img),
         resolve: () => {
           const fresh = collectImageUrls(imageRoot(img), img);
-          if (fresh.length) sendDirectDownload(fresh, {}).catch(() => {});
+          if (fresh.length) sendDirectDownload(fresh, { source: postSource(img) }).catch(() => {});
         }
       });
     }

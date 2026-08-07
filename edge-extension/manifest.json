@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "RedGifs Downloader",
-  "version": "0.24.4",
+  "version": "0.25.0",
   "description": "Downloads accessible RedGifs videos from Redgifs and supported embeds.",
   "permissions": [
     "tabs",
@@ -47,6 +47,7 @@
       ],
       "js": [
         "common/settings.js",
+        "common/weblink.js",
         "content-folders.js",
         "content-redgifs.js"
       ],
@@ -73,6 +74,7 @@
       ],
       "js": [
         "common/settings.js",
+        "common/weblink.js",
         "content-folders.js",
         "content-reddit.js"
       ],
@@ -86,6 +88,7 @@
       ],
       "js": [
         "common/settings.js",
+        "common/weblink.js",
         "content-folders.js",
         "content-scrolller-v2.js"
       ],
@@ -98,7 +101,31 @@
       ],
       "js": [
         "common/settings.js",
+        "common/weblink.js",
         "content-coomer.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://onlyfans.com/*",
+        "https://www.onlyfans.com/*"
+      ],
+      "js": [
+        "page-hook-onlyfans.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://onlyfans.com/*",
+        "https://www.onlyfans.com/*"
+      ],
+      "js": [
+        "common/settings.js",
+        "common/weblink.js",
+        "content-onlyfans.js"
       ],
       "run_at": "document_idle"
     },
@@ -109,6 +136,7 @@
       ],
       "js": [
         "common/settings.js",
+        "common/weblink.js",
         "content-folders.js",
         "content-instagram.js"
       ],

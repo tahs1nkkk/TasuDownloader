@@ -1,4 +1,49 @@
+import CoreGraphics
 import Foundation
+
+/// Yüzen indirme butonunun durduğu yer.
+///
+/// Sekiz sabit kenar/köşe ve bir de "serbest". Serbestte butonu parmakla
+/// sürüklersin ve bıraktığın nokta ekran ölçüsüne değil orana göre saklanır —
+/// telefon yan çevrildiğinde ya da klavye açıldığında buton aynı bölgede kalır.
+enum FabAnchor: String, CaseIterable, Identifiable {
+    case topLeft, topCenter, topRight
+    case midLeft, midRight
+    case bottomLeft, bottomCenter, bottomRight
+    case custom
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .topLeft: return "Sol üst"
+        case .topCenter: return "Üst orta"
+        case .topRight: return "Sağ üst"
+        case .midLeft: return "Sol"
+        case .midRight: return "Sağ"
+        case .bottomLeft: return "Sol alt"
+        case .bottomCenter: return "Alt orta"
+        case .bottomRight: return "Sağ alt"
+        case .custom: return "Serbest"
+        }
+    }
+
+    /// Ekranın oranlı koordinatları (0…1). Serbest konumun kayıtlı kendi
+    /// noktası var, o yüzden burada karşılığı yok.
+    var unitPoint: CGPoint? {
+        switch self {
+        case .topLeft: return CGPoint(x: 0.12, y: 0.13)
+        case .topCenter: return CGPoint(x: 0.50, y: 0.13)
+        case .topRight: return CGPoint(x: 0.88, y: 0.13)
+        case .midLeft: return CGPoint(x: 0.12, y: 0.50)
+        case .midRight: return CGPoint(x: 0.88, y: 0.50)
+        case .bottomLeft: return CGPoint(x: 0.12, y: 0.88)
+        case .bottomCenter: return CGPoint(x: 0.50, y: 0.88)
+        case .bottomRight: return CGPoint(x: 0.88, y: 0.88)
+        case .custom: return nil
+        }
+    }
+}
 
 /// Where a finished download ends up.
 enum DownloadDestination: String, CaseIterable, Identifiable {
@@ -17,7 +62,7 @@ enum DownloadDestination: String, CaseIterable, Identifiable {
 }
 
 /// App-side settings store. The payload the in-app browser reads mirrors the
-/// extension's `rgRipsnipSettings` JSON (see edge-extension/common/settings.js),
+/// extension's `tasuDownloaderSettings` JSON (see edge-extension/common/settings.js),
 /// so the injected handlers see the exact shape they always have.
 ///
 /// What is *not* here is deliberate. This is a downloader, so there is no
@@ -29,13 +74,17 @@ enum DownloadDestination: String, CaseIterable, Identifiable {
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
     static let changedNotification = Notification.Name("rgSettingsChanged")
-    static let settingsKey = "rgRipsnipSettings"
+    static let settingsKey = "tasuDownloaderSettings"
 
     /// The floating button's diameter. Applies to that button and nothing else
     /// — the handlers' own buttons are invisible, so sizing them is meaningless.
     @Published var fabSize: Double { didSet { persist() } }
-    /// Right-handed by default; left for the other half of the world.
-    @Published var fabOnLeft: Bool { didSet { persist() } }
+    /// Butonun yeri. Sağ alt varsayılan; solaklar ve büyük ekranda baş parmağın
+    /// yetişmediği köşeler için sekiz seçenek daha var, üstüne de serbest.
+    @Published var fabAnchor: FabAnchor { didSet { persist() } }
+    /// Serbest konumun oranlı koordinatları (0…1).
+    @Published var fabCustomX: Double { didSet { persist() } }
+    @Published var fabCustomY: Double { didSet { persist() } }
     /// The Reddit user-search bubble. Off for anyone who does not use it, since
     /// it does occupy a corner of every Reddit page.
     @Published var searchOverlayEnabled: Bool { didSet { persist() } }
@@ -54,6 +103,15 @@ final class AppSettings: ObservableObject {
     /// One secret (ARCHIVE_TOKEN) unlocks the app's calls. Lives in the Keychain.
     @Published var sharedToken: String { didSet { KeychainBox.set(sharedToken, for: "sharedToken"); notify() } }
     @Published var downloadDestination: DownloadDestination { didSet { persist() } }
+    /// Mbps cinsinden bant genişliği tavanı; 0 ya da `bwFree` ve üstü "sınırsız"
+    /// demek. Sınırı Worker uyguluyor (baytları yavaş salarak), uygulama yalnızca
+    /// isteğe `X-Tasu-Bw` başlığını / `bw` parametresini iliştiriyor — istemci
+    /// tarafında bir indirmeyi gerçekten kısmanın yolu yok.
+    @Published var bwDown: Int { didSet { persist() } }
+    @Published var bwUp: Int { didSet { persist() } }
+
+    /// Web tarafındaki `BW_FREE` ile aynı eşik (core.js).
+    static let bwFree = 1000
 
     /// Keys handlers wrote through chrome.storage.set (folder lists and the
     /// like). Kept verbatim and merged back into every read so those flows keep
@@ -65,7 +123,15 @@ final class AppSettings: ObservableObject {
 
     init() {
         fabSize = defaults.object(forKey: "fabSize") as? Double ?? 58
-        fabOnLeft = defaults.object(forKey: "fabOnLeft") as? Bool ?? false
+        // Eski sürümde tek bir "solda dursun" anahtarı vardı; onu ızgaradaki
+        // karşılığına taşıyoruz ki güncelleyen kimse butonunu kaybetmesin.
+        if let raw = defaults.string(forKey: "fabAnchor"), let anchor = FabAnchor(rawValue: raw) {
+            fabAnchor = anchor
+        } else {
+            fabAnchor = (defaults.object(forKey: "fabOnLeft") as? Bool ?? false) ? .bottomLeft : .bottomRight
+        }
+        fabCustomX = defaults.object(forKey: "fabCustomX") as? Double ?? 0.88
+        fabCustomY = defaults.object(forKey: "fabCustomY") as? Double ?? 0.88
         searchOverlayEnabled = defaults.object(forKey: "searchOverlayEnabled") as? Bool ?? true
         searchUsername = defaults.string(forKey: "searchUsername") ?? ""
         searchSubreddit = defaults.string(forKey: "searchSubreddit") ?? ""
@@ -76,6 +142,8 @@ final class AppSettings: ObservableObject {
             ?? defaults.string(forKey: "cloudBaseURL") ?? ""
         sharedToken = KeychainBox.get("sharedToken") ?? ""
         downloadDestination = DownloadDestination(rawValue: defaults.string(forKey: "downloadDestination") ?? "") ?? .photos
+        bwDown = defaults.object(forKey: "bwDown") as? Int ?? 0
+        bwUp = defaults.object(forKey: "bwUp") as? Int ?? 0
         if let data = defaults.data(forKey: "extraSettings"),
            let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             extraSettings = parsed
@@ -99,16 +167,44 @@ final class AppSettings: ObservableObject {
         cloudConfigured ? downloadDestination : .photos
     }
 
+    /// Butonun o anki oranlı yeri.
+    var fabPoint: CGPoint {
+        fabAnchor.unitPoint ?? CGPoint(x: fabCustomX, y: fabCustomY)
+    }
+
+    /// Ekranın sol yarısında mı — yanındaki düğmelerin hangi tarafa dizileceğini
+    /// ve arama balonunun nereye kaçacağını bu belirliyor.
+    var fabOnLeftHalf: Bool { fabPoint.x < 0.5 }
+
+    /// Sürükleme bittiğinde çağrılır: konum kenarların biraz içinde tutulur ki
+    /// buton ekran dışına itilemesin.
+    func moveFab(toUnitX x: Double, unitY y: Double) {
+        fabCustomX = min(max(x, 0.06), 0.94)
+        fabCustomY = min(max(y, 0.06), 0.94)
+        fabAnchor = .custom
+    }
+
+    /// Worker'ın `pace.js` içindeki kuralının aynısı: aralık dışındaki her değer
+    /// sınırsız sayılır. İki taraf da aynı şeyi eleyince, gösterilen etiket ile
+    /// gerçekte uygulanan sınır ayrışmıyor.
+    static func bwClamp(_ mbps: Int) -> Int { (1..<bwFree).contains(mbps) ? mbps : 0 }
+    var effectiveBwDown: Int { Self.bwClamp(bwDown) }
+    var effectiveBwUp: Int { Self.bwClamp(bwUp) }
+
     private func persist() {
         guard !loading else { return }
         defaults.set(fabSize, forKey: "fabSize")
-        defaults.set(fabOnLeft, forKey: "fabOnLeft")
+        defaults.set(fabAnchor.rawValue, forKey: "fabAnchor")
+        defaults.set(fabCustomX, forKey: "fabCustomX")
+        defaults.set(fabCustomY, forKey: "fabCustomY")
         defaults.set(searchOverlayEnabled, forKey: "searchOverlayEnabled")
         defaults.set(searchUsername, forKey: "searchUsername")
         defaults.set(searchSubreddit, forKey: "searchSubreddit")
         defaults.set(Array(searchProviders), forKey: "searchProviders")
         defaults.set(archiveURL, forKey: "archiveURL")
         defaults.set(downloadDestination.rawValue, forKey: "downloadDestination")
+        defaults.set(bwDown, forKey: "bwDown")
+        defaults.set(bwUp, forKey: "bwUp")
         notify()
     }
 
@@ -136,7 +232,7 @@ final class AppSettings: ObservableObject {
         "scrolllerButtons", "coomerButtons", "instagramButtons"
     ]
 
-    /// The dictionary handlers receive for `rgRipsnipSettings`.
+    /// The dictionary handlers receive for `tasuDownloaderSettings`.
     ///
     /// Every capability is on: the buttons are the app's media *resolvers*, not
     /// UI, so switching one off would only blind the floating button on that

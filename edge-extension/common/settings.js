@@ -5,7 +5,10 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, () => {
   "use strict";
 
-  const SETTINGS_KEY = "rgRipsnipSettings";
+  const SETTINGS_KEY = "tasuDownloaderSettings";
+  // Eski kurulumlar ayarlarını bu anahtarın altında sakladı; background.js
+  // ilk açılışta yenisine taşır (bkz. migrateLegacySettingsKey).
+  const LEGACY_SETTINGS_KEY = "rgRipsnipSettings";
   const DEFAULT_SETTINGS = Object.freeze({
     feedButtons: true,
     profileButtons: true,
@@ -13,6 +16,10 @@
     directDownloads: true,
     ripsnipFallback: false,
     buttonVisibility: "hover",
+    // Aşağıdaki site anahtarlarının artık ayar ekranında karşılığı yok: iOS gibi
+    // (SettingsScreen.swift) "indirmek dışında işi olmayan uygulamada indirmeyi
+    // kapatan anahtar dürüst değil" — davranış varsayılana sabitlendi, gizli
+    // mekanizma olarak kaldılar. Değeri değiştirmek istersen buradan.
     redgifsAvatarDownload: true,
     ripsnipWhenOpen: false,
     hideRedgifsProfileAvatars: true,
@@ -22,12 +29,23 @@
     scrolllerHiddenSelectors: [],
     coomerButtons: true,
     instagramButtons: true,
+    onlyfansButtons: true,
     downloadPath: "RedGifsDownloader",
     folderLayout: "organized",
     includeDateInFilename: false,
     buttonSize: 44,
     rightShiftDownload: false,
-    mediaFolders: []
+    mediaFolders: [],
+    // --- Bulut / sunucu (Cloudflare Worker + R2 + Supabase) ---
+    // iOS uygulamasıyla aynı uçlar. Boşken bulut "yok" sayılır; hiçbir istek
+    // atılmaz ve indirmeler eskisi gibi yalnız diske gider.
+    cloudBase: "",              // Worker adresi, ör. https://arsiv.example.workers.dev
+    cloudToken: "",             // ARCHIVE_TOKEN (Bearer). Boşsa Google oturum çerezi denenir.
+    cloudDestination: "local",  // "local" | "cloud" | "both"
+    cloudDrive: "main",         // yüklemelerin gideceği sürücü
+    cloudBwDown: 0,             // Mbps, 0 = sınırsız (X-Tasu-Bw)
+    cloudBwUp: 0,               // Mbps, 0 = sınırsız
+    cloudListSync: false        // listeleri /api/lists ile eşitle
   });
 
   function withDefaults(value) {
@@ -56,6 +74,7 @@
       if (host === "instagram.com" || host.endsWith(".instagram.com")) return "Instagram";
       if (host === "scrolller.com" || host.endsWith(".scrolller.com")) return "Scrolller";
       if (host === "coomer.st" || host.endsWith(".coomer.st")) return "Coomer";
+      if (host === "onlyfans.com" || host.endsWith(".onlyfans.com")) return "OnlyFans";
     } catch {
       // Unknown or incomplete URL.
     }
@@ -98,6 +117,7 @@
 
   return Object.freeze({
     SETTINGS_KEY,
+    LEGACY_SETTINGS_KEY,
     DEFAULT_SETTINGS,
     withDefaults,
     cleanPathPart,

@@ -23,6 +23,8 @@ struct BrowserScreen: View {
     @ObservedObject private var downloader = Downloader.shared
     @FocusState private var addressFocused: Bool
     @State private var pendingLink: PendingLink?
+    /// Sürükleme sırasındaki geçici kayma; parmak kalkınca ayara yazılıp sıfırlanır.
+    @State private var fabDrag: CGSize = .zero
 
     /// The focused media's real permalink + title, resolved from the page just
     /// before the sheet opens (KÖK-LİSTE). Identifiable so `.sheet(item:)` opens
@@ -132,34 +134,91 @@ struct BrowserScreen: View {
     // MARK: - Browsing
 
     private var overlays: some View {
-        VStack(spacing: 10) {
-            Spacer()
-            GlassGroup(spacing: 24) {
+        ZStack(alignment: .bottom) {
+            // Arama balonu ve indirme bildirimi tabanda kalır; yüzen buton artık
+            // kendi katmanında, ayarlanan yerde duruyor. Balon her zaman butonun
+            // karşı yarısına kaçıyor ki ikisi çakışmasın.
+            VStack(spacing: 10) {
+                Spacer(minLength: 0)
                 HStack(alignment: .bottom, spacing: 12) {
-                    if settings.fabOnLeft {
-                        fab
-                        addToListButton
+                    if settings.fabOnLeftHalf {
                         Spacer(minLength: 0)
                         searchBubble
                     } else {
                         searchBubble
                         Spacer(minLength: 0)
+                    }
+                }
+                .padding(.horizontal, 16)
+                if downloader.phase != .idle {
+                    DownloadHUDView(phase: downloader.phase) {
+                        downloader.cancelCurrent()
+                    }
+                    .padding(.horizontal, 12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .padding(.bottom, 10)
+
+            fabLayer
+        }
+        .animation(.spring(response: 0.34, dampingFraction: 0.82), value: downloader.phase)
+    }
+
+    /// Yüzen buton ve yanındaki "listeye ekle" düğmesi tek bir küme olarak
+    /// taşınır: ayrı ayrı konumlansalardı, ayarlanan köşeye göre üst üste
+    /// binebilirlerdi. Küme sabit genişlikte, böylece seçim modunda ikinci
+    /// düğme gizlenince buton yerinden oynamıyor.
+    private var fabLayer: some View {
+        GeometryReader { geo in
+            let point = settings.fabPoint
+            let onLeft = point.x < 0.5
+            let width = settings.fabSize + 12 + 42
+            let height = max(settings.fabSize, 42)
+
+            GlassGroup(spacing: 20) {
+                HStack(spacing: 12) {
+                    if onLeft {
+                        fab
+                        addToListButton
+                        Spacer(minLength: 0)
+                    } else {
+                        Spacer(minLength: 0)
                         addToListButton
                         fab
                     }
                 }
-                .padding(.horizontal, 16)
             }
-            if downloader.phase != .idle {
-                DownloadHUDView(phase: downloader.phase) {
-                    downloader.cancelCurrent()
-                }
-                .padding(.horizontal, 12)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
+            .frame(width: width, height: height)
+            .position(x: place(point.x, span: geo.size.width, box: width),
+                      y: place(point.y, span: geo.size.height, box: height))
+            .offset(fabDrag)
+            .gesture(fabDragGesture(in: geo.size))
+            .animation(.spring(response: 0.32, dampingFraction: 0.84), value: settings.fabAnchor)
         }
-        .padding(.bottom, 10)
-        .animation(.spring(response: 0.34, dampingFraction: 0.82), value: downloader.phase)
+        .ignoresSafeArea(.keyboard)
+    }
+
+    /// Oranı piksele çevirir ve kümeyi ekranın içinde tutar.
+    private func place(_ unit: CGFloat, span: CGFloat, box: CGFloat) -> CGFloat {
+        let half = box / 2
+        guard span > box + 16 else { return span / 2 }
+        return min(max(unit * span, half + 8), span - half - 8)
+    }
+
+    /// Sürükleyip bırakmak konumu "Serbest"e alır. 18 piksellik eşik, butona
+    /// dokunmayı ya da basılı tutmayı yanlışlıkla taşımaya çevirmiyor.
+    private func fabDragGesture(in size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 18)
+            .onChanged { value in fabDrag = value.translation }
+            .onEnded { value in
+                let point = settings.fabPoint
+                let x = (point.x * size.width + value.translation.width) / max(size.width, 1)
+                let y = (point.y * size.height + value.translation.height) / max(size.height, 1)
+                fabDrag = .zero
+                settings.moveFab(toUnitX: x, unitY: y)
+                UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            }
     }
 
     @ViewBuilder private var searchBubble: some View {

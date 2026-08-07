@@ -178,7 +178,10 @@ async function removeCurrent() {
   try {
     await api.del(`/api/media/${encKey(item.key)}`);
     if (onRemove) onRemove([item.key]);
-    items.splice(index, 1);
+    // Anahtara göre çıkarıyoruz, indise göre değil: onaylama penceresi açıkken
+    // liste değişmiş olabilir ve o zaman yanlış dosya listeden düşüyor, silinen
+    // dosya da ekranda kalıyordu.
+    items = items.filter((row) => row.key !== item.key);
     toast("Silindi", "ok");
     if (!items.length) { closeViewer(); return; }
     if (index >= items.length) index = items.length - 1;

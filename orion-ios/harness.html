@@ -54,25 +54,25 @@ const IMG = "https://upload.wikimedia.org/wikipedia/commons/4/47/PNG_transparenc
   check("sendMessage patched", chrome.runtime.sendMessage !== window.__nativeSendMessage);
 
   // storage polyfill
-  await new Promise((r) => chrome.storage.local.set({ rgRipsnipSettings: { buttonSize: 61 } }, r));
-  const got = await new Promise((r) => chrome.storage.local.get("rgRipsnipSettings", r));
-  check("storage polyfill roundtrip", got?.rgRipsnipSettings?.buttonSize === 61, JSON.stringify(got));
+  await new Promise((r) => chrome.storage.local.set({ tasuDownloaderSettings: { buttonSize: 61 } }, r));
+  const got = await new Promise((r) => chrome.storage.local.get("tasuDownloaderSettings", r));
+  check("storage polyfill roundtrip", got?.tasuDownloaderSettings?.buttonSize === 61, JSON.stringify(got));
 
   // A phone cannot honour hover-gated buttons, a Right Shift shortcut or a 30px
   // target, so the bridge overrides them on read whatever the store holds.
-  await new Promise((r) => chrome.storage.local.set({ rgRipsnipSettings: { buttonVisibility: "hover", rightShiftDownload: true, buttonSize: 30 } }, r));
-  const forced = (await new Promise((r) => chrome.storage.local.get("rgRipsnipSettings", r)))?.rgRipsnipSettings;
+  await new Promise((r) => chrome.storage.local.set({ tasuDownloaderSettings: { buttonVisibility: "hover", rightShiftDownload: true, buttonSize: 30 } }, r));
+  const forced = (await new Promise((r) => chrome.storage.local.get("tasuDownloaderSettings", r)))?.tasuDownloaderSettings;
   check("mobile settings forced on read",
     forced?.buttonVisibility === "always" && forced?.rightShiftDownload === false && forced?.buttonSize >= 48,
     JSON.stringify(forced));
 
   // Handlers that ask for the whole store must get the overrides too.
   const wide = await new Promise((r) => chrome.storage.local.get(null, r));
-  check("overrides survive a get(null)", wide?.rgRipsnipSettings?.buttonVisibility === "always", JSON.stringify(wide?.rgRipsnipSettings));
+  check("overrides survive a get(null)", wide?.tasuDownloaderSettings?.buttonVisibility === "always", JSON.stringify(wide?.tasuDownloaderSettings));
 
   // Unrelated reads must not grow a settings key they never asked for.
   const other = await new Promise((r) => chrome.storage.local.get("somethingElse", r));
-  check("unrelated reads left alone", !("rgRipsnipSettings" in (other || {})), JSON.stringify(other));
+  check("unrelated reads left alone", !("tasuDownloaderSettings" in (other || {})), JSON.stringify(other));
 
   // Scrolller's controls live in a shadow root the manifest stylesheet cannot
   // reach, so the bridge has to push the touch overrides in itself — including

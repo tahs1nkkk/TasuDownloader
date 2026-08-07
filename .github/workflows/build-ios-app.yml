@@ -103,10 +103,24 @@ jobs:
           # not the build this run just produced.
           gh release edit latest --title "TasuDownloader (latest)"
           gh release view latest --json assets --jq '.assets[].name' \
-            | grep -vx "TasuDownloader.ipa" \
+            | grep -vxE "TasuDownloader\.ipa|apps\.json" \
             | while read -r stale; do
                 echo "Eski varlık siliniyor: $stale"
                 gh release delete-asset latest "$stale" --yes
               done
 
           gh release upload latest dist/TasuDownloader.ipa --clobber
+
+          # SideStore/AltStore kaynağı: telefonda tek bir URL ekleyince her yeni
+          # derleme otomatik "güncelleme" olarak görünür — .ipa'yı elle bulmaya
+          # gerek kalmaz. Sürüm run numarasından türetiliyor ki SideStore
+          # güncellemeyi algılasın; boyut gerçek dosyadan hesaplanıyor.
+          export REPO="${{ github.repository }}"
+          export APP_VERSION="1.0.${{ github.run_number }}"
+          export APP_DATE="$(date -u +%Y-%m-%d)"
+          export IPA_SIZE="$(stat -f%z dist/TasuDownloader.ipa)"
+          # sha256 bilerek boş: `latest` release her derlemede clobber'landığı
+          # için kısa CDN önbellek penceresinde hash uyuşmazlığı SideStore
+          # kurulumunu düşürebilir. Sürümlü release'e geçilirse eklenebilir.
+          node scripts/make-ios-source.js
+          gh release upload latest dist/apps.json --clobber

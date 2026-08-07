@@ -72,6 +72,11 @@ final class ArchiveWebModel: ObservableObject {
         }
     }
 
+    /// Sayfanın kendi kaydırıcısını başa sarar (bkz. app.js → tasuScrollTop).
+    func scrollToTop() {
+        web?.evaluateJavaScript("window.tasuScrollTop && window.tasuScrollTop()")
+    }
+
     func flash(_ text: String) {
         note = text
         Task {
@@ -99,6 +104,11 @@ private struct ArchiveWebView: UIViewRepresentable {
         let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = context.coordinator
         web.uiDelegate = context.coordinator
+        // WKScrollView dışarıdan verilen temsilciyi kendi iç temsilcisine
+        // iletiyor, dolayısıyla bunu almak kaydırma davranışını bozmuyor. Tek
+        // ihtiyacımız durum çubuğu dokunuşunu duymak.
+        web.scrollView.delegate = context.coordinator
+        web.scrollView.scrollsToTop = true
         // Sayfanın kendi kenar butonları soldan/sağdan geçiş için; sistemin
         // kenar kaydırması onlarla çakışırdı.
         web.allowsBackForwardNavigationGestures = false
@@ -116,7 +126,7 @@ private struct ArchiveWebView: UIViewRepresentable {
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, UIScrollViewDelegate {
         private let model: ArchiveWebModel
         /// Where each download is being written plus the name the server asked
         /// for — the temp path carries a UUID, so the name cannot be recovered
@@ -125,6 +135,14 @@ private struct ArchiveWebView: UIViewRepresentable {
 
         init(model: ArchiveWebModel) {
             self.model = model
+        }
+
+        /// Dynamic Island'a (durum çubuğuna) dokunuş. WebView'ın kendi kaydırıcısı
+        /// zaten hep tepede olduğu için sistemin başa dönüşü görünürde hiçbir şey
+        /// yapmıyordu; asıl kaydırıcıyı sayfaya söyleyerek sarıyoruz.
+        func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+            Task { @MainActor in model.scrollToTop() }
+            return true
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {

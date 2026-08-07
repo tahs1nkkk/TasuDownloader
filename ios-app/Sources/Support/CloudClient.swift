@@ -59,6 +59,9 @@ struct CloudClient {
 
     let base: URL
     let token: String
+    /// Mbps; 0 = sınırsız. Sunucu bu değere göre baytları yavaşlatır (pace.js).
+    var bwDown: Int = 0
+    var bwUp: Int = 0
 
     /// Nil while the settings are incomplete; callers treat that as
     /// "cloud does not exist", not as an error.
@@ -66,7 +69,10 @@ struct CloudClient {
         let settings = AppSettings.shared
         guard settings.cloudConfigured,
               let base = URL(string: settings.archiveURL.trimmingCharacters(in: .whitespaces)) else { return nil }
-        return CloudClient(base: base, token: settings.sharedToken)
+        return CloudClient(base: base,
+                           token: settings.sharedToken,
+                           bwDown: settings.effectiveBwDown,
+                           bwUp: settings.effectiveBwUp)
     }
 
     private func request(_ path: String, method: String = "GET", query: [URLQueryItem] = []) -> URLRequest {
@@ -76,7 +82,18 @@ struct CloudClient {
         request.httpMethod = method
         request.timeoutInterval = 30
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        // Yükleme kendi tavanını taşır, gerisi indirme tavanını. Sınır yokken
+        // başlık hiç gönderilmiyor: sunucu yokluğu "sınırsız" okuyor.
+        let mbps = (method == "PUT" || method == "POST") ? bwUp : bwDown
+        if mbps > 0 { request.setValue(String(mbps), forHTTPHeaderField: "X-Tasu-Bw") }
         return request
+    }
+
+    /// `AsyncImage` ve `AVPlayer` başlık gönderemez; onlar için sınır da
+    /// jetonla aynı yoldan, sorgu dizesiyle gider.
+    private func mediaQuery() -> String {
+        let escaped = token.addingPercentEncoding(withAllowedCharacters: .urlQueryValueAllowed) ?? token
+        return bwDown > 0 ? "token=\(escaped)&bw=\(bwDown)" : "token=\(escaped)"
     }
 
     private func check(_ response: URLResponse) throws {
@@ -132,7 +149,7 @@ struct CloudClient {
     func streamURL(key: String) -> URL {
         var components = URLComponents(url: base.appendingPathComponent("api/media/\(Self.encode(key: key))"),
                                        resolvingAgainstBaseURL: false)!
-        components.percentEncodedQuery = "token=\(token.addingPercentEncoding(withAllowedCharacters: .urlQueryValueAllowed) ?? token)"
+        components.percentEncodedQuery = mediaQuery()
         return components.url!
     }
 
@@ -141,15 +158,19 @@ struct CloudClient {
     func thumbURL(key: String) -> URL {
         var components = URLComponents(url: base.appendingPathComponent("api/thumb/\(Self.encode(key: key))"),
                                        resolvingAgainstBaseURL: false)!
-        components.percentEncodedQuery = "token=\(token.addingPercentEncoding(withAllowedCharacters: .urlQueryValueAllowed) ?? token)"
+        components.percentEncodedQuery = mediaQuery()
         return components.url!
     }
 
     /// Entry point for the in-app archive: `/auth/app` accepts the Bearer token,
     /// hands back a session cookie and forwards to the page named in `next`.
     /// `?app=1` is what makes the web client switch to its iOS skin.
-    func appEntryRequest(startAt view: String = "media") -> URLRequest {
-        let next = "/?app=1&go=\(view)"
+    ///
+    /// `startAt` boş bırakılırsa arşiv kendi giriş ekranıyla açılır — telefonda
+    /// arşive girer girmez medya ızgarasına düşmek, önce hangi arşiv/kategori
+    /// olduğunu seçmek isteyen birini adım geriye zorluyordu.
+    func appEntryRequest(startAt view: String = "") -> URLRequest {
+        let next = view.isEmpty ? "/?app=1" : "/?app=1&go=\(view)"
         var components = URLComponents(url: base.appendingPathComponent("auth/app"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "next", value: next)]
         var request = URLRequest(url: components.url!)

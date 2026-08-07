@@ -52,11 +52,15 @@ export function sanitizeMeta(input) {
     const driveId = id(drive && drive.id);
     if (!driveId || seenDrives.has(driveId)) continue;
     seenDrives.add(driveId);
-    cleanDrives.push({
+    const clean = {
       id: driveId,
       name: str(drive.name, 60, driveId),
       accent: color(drive.accent, "#f59e0b")
-    });
+    };
+    // Kapak görseli arşivin kendi dosyalarından biri: R2 anahtarı olarak saklanır.
+    const banner = str(drive.banner, 400);
+    if (banner && !banner.startsWith("/")) clean.banner = banner;
+    cleanDrives.push(clean);
   }
   if (!cleanDrives.some((d) => d.id === DEFAULT_DRIVE)) {
     cleanDrives.unshift(base.drives[0]);
@@ -124,6 +128,10 @@ export function sanitizeMeta(input) {
     if (accent) entry.accent = accent;
     const cat = id(value.cat);
     if (cat && seenListCats.has(cat)) entry.cat = cat;
+    // Listeler sunucuda tek havuzda duruyor (eklenti oraya yazıyor); hangi arşive
+    // ait oldukları burada etiketle taşınıyor. Etiketsiz olan "main" sayılır.
+    const listDrive = id(value.drive);
+    if (listDrive && listDrive !== DEFAULT_DRIVE && seenDrives.has(listDrive)) entry.drive = listDrive;
     if (value.collapsed === true) entry.collapsed = true;
     if (Object.keys(entry).length) base.lists[key] = entry;
   }

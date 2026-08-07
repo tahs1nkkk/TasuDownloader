@@ -7,6 +7,34 @@ struct ListsScreen: View {
     @EnvironmentObject private var settings: AppSettings
     @State private var newListName = ""
     @State private var askNewList = false
+    /// Boşken hepsi. Süzgeç listeyi değil, listenin içindekileri tarıyor:
+    /// "Instagram" seçilince yalnız Instagram bağlantısı taşıyan listeler kalır.
+    @State private var siteFilter = ""
+
+    /// Bütün listelerdeki bağlantıların kaynakları, ilk görülme sırasıyla.
+    private var sites: [String] {
+        var seen: [String] = []
+        for list in store.lists {
+            for item in list.items {
+                let key = LinkSite.key(for: item)
+                if !seen.contains(key) { seen.append(key) }
+            }
+        }
+        return seen
+    }
+
+    private var shown: [LinkList] {
+        guard !siteFilter.isEmpty else { return store.lists }
+        return store.lists.filter { list in
+            list.items.contains { LinkSite.key(for: $0) == siteFilter }
+        }
+    }
+
+    private func count(_ key: String) -> Int {
+        store.lists.reduce(0) { total, list in
+            total + list.items.filter { LinkSite.key(for: $0) == key }.count
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -18,27 +46,35 @@ struct ListsScreen: View {
                         description: Text("Sağ üstten liste oluştur; tarayıcıda bir sayfadayken + butonuyla buraya eklersin.")
                     )
                 } else {
-                    List {
-                        ForEach(store.lists) { list in
-                            NavigationLink(value: list.id) {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "bookmark.fill")
-                                        .foregroundStyle(.indigo)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(list.name).font(.system(size: 16, weight: .semibold))
-                                        Text("\(list.items.count) bağlantı")
-                                            .font(.system(size: 12))
-                                            .foregroundStyle(.secondary)
+                    VStack(spacing: 0) {
+                        if sites.count > 1 {
+                            SiteFilterBar(sites: sites,
+                                          selection: $siteFilter,
+                                          total: store.lists.reduce(0) { $0 + $1.items.count },
+                                          count: count)
+                        }
+                        List {
+                            ForEach(shown) { list in
+                                NavigationLink(value: list.id) {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "bookmark.fill")
+                                            .foregroundStyle(.indigo)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(list.name).font(.system(size: 16, weight: .semibold))
+                                            Text("\(list.items.count) bağlantı")
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(.secondary)
+                                        }
                                     }
                                 }
                             }
-                        }
-                        .onDelete { offsets in
-                            for index in offsets { store.deleteList(store.lists[index].id) }
-                        }
+                            .onDelete { offsets in
+                                for index in offsets { store.deleteList(shown[index].id) }
+                            }
 
-                        Section {
-                            syncFooter
+                            Section {
+                                syncFooter
+                            }
                         }
                     }
                 }
@@ -73,7 +109,12 @@ struct ListsScreen: View {
                 }
                 Button("Vazgeç", role: .cancel) { newListName = "" }
             }
-            .onAppear { store.scheduleSync() }
+            .onAppear {
+                store.scheduleSync()
+                // Süzgeçteki site son senkronla ortadan kalkmış olabilir;
+                // boş bir ekranla baş başa bırakmayalım.
+                if !siteFilter.isEmpty && !sites.contains(siteFilter) { siteFilter = "" }
+            }
         }
     }
 
@@ -97,8 +138,24 @@ struct ListDetailScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var renameText = ""
     @State private var askRename = false
+    @State private var siteFilter = ""
 
     private var list: LinkList? { store.lists.first { $0.id == listId } }
+
+    private var sites: [String] {
+        var seen: [String] = []
+        for item in list?.items ?? [] {
+            let key = LinkSite.key(for: item)
+            if !seen.contains(key) { seen.append(key) }
+        }
+        return seen
+    }
+
+    private var shown: [LinkItem] {
+        let items = list?.items ?? []
+        guard !siteFilter.isEmpty else { return items }
+        return items.filter { LinkSite.key(for: $0) == siteFilter }
+    }
 
     var body: some View {
         Group {
@@ -110,27 +167,43 @@ struct ListDetailScreen: View {
                         description: Text("Tarayıcıda bir sayfadayken + butonuna dokun, bu listeyi seç.")
                     )
                 } else {
-                    List {
-                        ForEach(list.items) { item in
-                            Button {
-                                browser.openURL(item.url)
-                            } label: {
-                                HStack(spacing: 12) {
-                                    siteDot(for: item)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(item.title.isEmpty ? item.url : item.title)
-                                            .font(.system(size: 15, weight: .medium))
-                                            .foregroundStyle(.primary)
-                                            .lineLimit(1)
-                                        Text(item.host)
-                                            .font(.system(size: 12))
-                                            .foregroundStyle(.secondary)
+                    VStack(spacing: 0) {
+                        if sites.count > 1 {
+                            SiteFilterBar(sites: sites,
+                                          selection: $siteFilter,
+                                          total: list.items.count,
+                                          count: { key in list.items.filter { LinkSite.key(for: $0) == key }.count })
+                        }
+                        List {
+                            ForEach(shown) { item in
+                                Button {
+                                    browser.openURL(item.url)
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        siteDot(for: item)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            // Ad adresten geliyor: profilse kullanıcı adı,
+                                            // gönderiyse "kullanıcı | tür". Eklentinin
+                                            // kaydettiği başlık varsa alt satıra düşüyor.
+                                            Text(LinkLabel.of(url: item.url, title: item.title))
+                                                .font(.system(size: 15, weight: .medium))
+                                                .foregroundStyle(.primary)
+                                                .lineLimit(1)
+                                            Text(LinkLabel.note(url: item.url, title: item.title) ?? item.host)
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
                                     }
                                 }
                             }
-                        }
-                        .onDelete { offsets in
-                            store.removeItems(at: offsets, from: listId)
+                            .onDelete { offsets in
+                                // Süzgeç açıkken ekrandaki sıra ile listenin gerçek
+                                // sırası ayrışır; silme kimliğe göre yapılmalı.
+                                let doomed = Set(offsets.map { shown[$0].id })
+                                let real = IndexSet(list.items.indices.filter { doomed.contains(list.items[$0].id) })
+                                store.removeItems(at: real, from: listId)
+                            }
                         }
                     }
                 }
@@ -169,15 +242,57 @@ struct ListDetailScreen: View {
     }
 
     private func siteDot(for item: LinkItem) -> some View {
-        let site = SiteCatalog.site(forHost: URL(string: item.url)?.host?.lowercased() ?? "")
+        let key = LinkSite.key(for: item)
         return Circle()
-            .fill((site?.color ?? .gray).gradient)
+            .fill(LinkSite.color(key).gradient)
             .frame(width: 30, height: 30)
             .overlay(
-                Text(site?.initial ?? String(item.host.prefix(1)).uppercased())
+                Text(LinkSite.initial(key))
                     .font(.system(size: 13, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
             )
+    }
+}
+
+/// Kaynak sitesine göre süzen şerit — bulut galerisindeki site sekmeleriyle
+/// aynı dil, aynı yerleşim. Tek site varsa hiç gösterilmiyor: seçeneksiz bir
+/// süzgeç yalnızca yer kaplar.
+private struct SiteFilterBar: View {
+    let sites: [String]
+    @Binding var selection: String
+    let total: Int
+    let count: (String) -> Int
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                chip(label: "Tümü", value: "", count: total, tint: .accentColor)
+                ForEach(sites, id: \.self) { key in
+                    chip(label: LinkSite.name(key), value: key, count: count(key), tint: LinkSite.color(key))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+        }
+    }
+
+    private func chip(label: String, value: String, count: Int, tint: Color) -> some View {
+        let on = selection == value
+        return Button {
+            selection = value
+        } label: {
+            HStack(spacing: 5) {
+                Text(label).font(.system(size: 13, weight: .semibold))
+                Text("\(count)")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(on ? .white.opacity(0.75) : .secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(on ? AnyShapeStyle(tint) : AnyShapeStyle(.quaternary), in: Capsule())
+            .foregroundStyle(on ? Color.white : Color.primary)
+        }
+        .buttonStyle(.plain)
     }
 }
 
