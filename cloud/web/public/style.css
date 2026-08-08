@@ -472,8 +472,11 @@ button { font-family: inherit; }
 .list-link { display: flex; align-items: center; gap: 9px; padding: 8px 9px; border-radius: 10px;
   text-decoration: none; color: var(--text); transition: background .16s; }
 .list-link:hover { background: rgba(var(--ink),.07); }
-.list-link .list-ico { width: 17px; height: 17px; flex: 0 0 auto; display: block; }
+.list-link .list-ico { width: 17px; height: 17px; flex: 0 0 auto; display: block; position: relative; }
 .list-link .list-ico svg { width: 100%; height: 100%; display: block; }
+/* Profil resmi site işaretinin üstüne biner: resim inmezse alttaki işaret kalır. */
+.list-link .list-avatar { position: absolute; inset: 0; width: 100%; height: 100%;
+  border-radius: 50%; object-fit: cover; background: rgba(var(--ink),.10); }
 .list-link .title { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .list-link .title b { font: 600 13px/1.3 inherit;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

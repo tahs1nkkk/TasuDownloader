@@ -8,8 +8,8 @@
 // Bilerek gösterilmeyen şey: eklenme tarihi. Sayı "x adet" olarak yazılır.
 
 import {
-  $, ICON, PALETTE, S, api, clear, confirmBox, dialog, el, hostOf, isoNow, linkLabel, mediaURL,
-  newId, promptBox, saveMeta, siteBrand, thumbURL, toast
+  $, ICON, PALETTE, S, api, avatarId, avatarURL, clear, confirmBox, dialog, el, hostOf, isoNow,
+  linkLabel, mediaURL, newId, promptBox, saveMeta, siteBrand, thumbURL, toast
 } from "./core.js";
 
 const SITE_HINTS = [
@@ -302,6 +302,23 @@ async function customize(list, refresh) {
 
 /* --------------------------------------------------------------- kart çizimi */
 
+// Satır işareti. Sahibi adresten okunabilen bağlantılarda telefonun buluta
+// bıraktığı profil resmi gösteriliyor; okunamıyorsa ya da o profilin resmi
+// henüz yüklenmemişse altındaki site işareti görünür kalıyor. Resim kendi
+// hatasında siliniyor, böylece yoklama isteği atmadan tek denemede karar
+// veriliyor ve resmi olmayan satır boş bir kare göstermiyor.
+function itemIcon(url) {
+  const node = el("span", { class: "list-ico", html: siteBrand(siteOfURL(url)).mark });
+  const id = avatarId(url);
+  if (!id) return node;
+  const img = el("img", {
+    class: "list-avatar", src: avatarURL(id), alt: "", loading: "lazy", decoding: "async",
+    onerror: () => img.remove()
+  });
+  node.append(img);
+  return node;
+}
+
 function card(list) {
   const entry = listMeta(list.id);
   const site = siteOfList(list);
@@ -357,7 +374,7 @@ function card(list) {
         class: "list-link", href: item.url, target: "_blank", rel: "noreferrer noopener",
         title: `${note ? `${note}\n` : ""}${item.url}`
       },
-        el("span", { class: "list-ico", html: siteBrand(siteOfURL(item.url)).mark }),
+        itemIcon(item.url),
         el("span", { class: "title" },
           el("b", {}, name),
           note && note !== name ? el("small", {}, note) : null),

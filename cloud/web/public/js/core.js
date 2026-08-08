@@ -179,6 +179,58 @@ export function encKey(key) {
 export const mediaURL = (key) => `/api/media/${encKey(key)}`;
 export const thumbURL = (key) => `/api/thumb/${encKey(key)}`;
 
+/* ------------------------------------------------------- profil resmi (avatar) */
+
+// Telefon, listeye eklenen profillerin resmini `.avatar/<kimlik>.jpg` altına
+// bırakıyor; web bunları hiç aramıyordu, o yüzden arşivde satırlar hep sitenin
+// jenerik işaretinde kalıyordu ("kullanıcı simgeleri gözükmüyor").
+//
+// Kimlik kuralı uygulamanın `AvatarIdentity.key`'iyle BİREBİR aynı olmak
+// zorunda: bir harf bile kayarsa web, telefonun yüklediği blob'u hiç bulamaz.
+// Biçim `<site>~<kullanıcı>`, küçük harf, yalnız Worker'ın `safeAvatarId`
+// kabul ettiği karakterler.
+function avatarSanitize(raw) {
+  return String(raw || "").replace(/[^A-Za-z0-9._~-]/g, "").replace(/^\.+/, "");
+}
+
+export function avatarId(raw) {
+  let parsed;
+  try { parsed = new URL(raw); } catch { return ""; }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  const [a = "", b = "", c = ""] = parsed.pathname.split("/").filter(Boolean)
+    .map((part) => { try { return decodeURIComponent(part); } catch { return part; } });
+
+  let site = "";
+  let user = "";
+  if (host.endsWith("instagram.com")) {
+    site = "instagram";
+    const reserved = ["p", "tv", "reel", "reels", "stories", "explore", "direct", "accounts", "s"];
+    if (a === "stories") user = b;
+    else if (a && !reserved.includes(a)) user = a;               // instagram.com/<kullanıcı>[/…]
+  } else if (host.endsWith("reddit.com") || host.endsWith("redd.it")) {
+    site = "reddit";
+    if (a === "user" || a === "u") user = b;
+    else if (a === "r" && b) user = `r-${b}`;                     // topluluk ikonu
+  } else if (host.endsWith("redgifs.com")) {
+    site = "redgifs";
+    user = a === "users" ? b : "";
+  } else if (host.endsWith("scrolller.com")) {
+    site = "scrolller";
+    if (a === "u") user = b;
+    else if (a === "r" && b) user = `r-${b}`;
+  } else if (host.includes("coomer.") || host.includes("kemono.")) {
+    site = host.includes("kemono.") ? "kemono" : "coomer";
+    user = b === "user" ? c : "";                                 // /<servis>/user/<kullanıcı>
+  } else {
+    return "";
+  }
+
+  const clean = avatarSanitize(user);
+  return clean ? avatarSanitize(`${site}~${clean}`).toLowerCase() : "";
+}
+
+export const avatarURL = (id) => `/api/avatar/${encodeURIComponent(id)}`;
+
 /* ----------------------------------------------------------- bant genişliği */
 
 // Sınır sunucuda uygulanıyor (src/pace.js), ama seçim burada yapılıyor ve
