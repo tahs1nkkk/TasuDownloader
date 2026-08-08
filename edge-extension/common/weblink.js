@@ -142,7 +142,7 @@
       newListName: newListName || ""
     });
     if (reply && reply.ok) {
-      toast(reply.duplicate ? `Zaten listede güncellendi: ${reply.listName}` : `Listeye eklendi: ${reply.listName}`);
+      toast(reply.duplicate ? `Bu bağlantı zaten listede: ${reply.listName}` : `Listeye eklendi: ${reply.listName}`);
     } else {
       toast(`Eklenemedi: ${(reply && reply.error) || "bilinmeyen hata"}`, true);
     }

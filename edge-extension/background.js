@@ -275,8 +275,27 @@ function summarizeLists(snapshot) {
     .map((l) => ({ id: l.id, name: l.name || "(adsız)", count: (l.items || []).length, site: siteOfList(l) }));
 }
 
-// getLists → değiştir → putLists. Aynı URL zaten varsa başlığı tazeleyip başa
-// alır (iOS'un add(url:…) davranışı). updatedAt bump'ı merge'de kazanmayı sağlar.
+/** Karşılaştırma için sadeleştirilmiş adres — iOS'taki `SiteListStore.canonical`
+ *  ile aynı kural: şema/host küçük harf, `www.` ve sondaki eğik çizgi ile
+ *  `#bölüm` atılır. İki taraf aynı şeyi "aynı bağlantı" saymazsa eşitleme
+ *  sonrasında liste yine kopyalanır. */
+function canonicalLinkUrl(raw) {
+  const text = String(raw || "").trim();
+  try {
+    const parsed = new URL(text);
+    parsed.hash = "";
+    parsed.hostname = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    if (parsed.pathname.length > 1) parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+    return parsed.href.toLowerCase();
+  } catch {
+    return text.toLowerCase();
+  }
+}
+
+// getLists → değiştir → putLists. Aynı bağlantı o listede zaten varsa HİÇBİR
+// şey değişmez ve `duplicate` ile geri dönülür (iOS'un add(url:…) davranışı):
+// eskiden başlığı tazeleyip öğeyi başa alıyordu, bu da eklenmiş gibi görünüp
+// listeyi sessizce yeniden sıralıyordu. updatedAt bump'ı merge'de kazandırır.
 async function addWebLink(settings, { url, title, listId, newListName }) {
   const snap = (await globalThis.RG_CLOUD.getLists(settings)) || { lists: [], tombstones: [] };
   if (!Array.isArray(snap.lists)) snap.lists = [];
@@ -294,19 +313,18 @@ async function addWebLink(settings, { url, title, listId, newListName }) {
   }
 
   const label = title || url;
-  const existing = list.items.find((it) => it && it.url === url);
-  if (existing) {
-    existing.title = label;
-    existing.addedAt = now;
-    list.items = list.items.filter((it) => it !== existing);
-    list.items.unshift(existing);
-  } else {
-    list.items.unshift({ id: uuid(), url, title: label, addedAt: now });
+  const target = canonicalLinkUrl(url);
+  if (list.items.some((it) => it && canonicalLinkUrl(it.url) === target)) {
+    // Yeni liste açılmışsa boş kalmasın diye yine de yazılır; eklemeyen dal
+    // burada kısa devre yapıyor, liste dokunulmadan aynı kalıyor.
+    if (newListName) await globalThis.RG_CLOUD.putLists(settings, snap);
+    return { ok: true, listName: list.name, duplicate: true, added: false };
   }
+  list.items.unshift({ id: uuid(), url, title: label, addedAt: now });
   list.updatedAt = now;
 
   await globalThis.RG_CLOUD.putLists(settings, snap);
-  return { ok: true, listName: list.name, duplicate: !!existing };
+  return { ok: true, listName: list.name, duplicate: false, added: true };
 }
 
 /**

@@ -83,22 +83,45 @@ final class SiteListStore: ObservableObject {
         cleanupAvatars(for: removed)
     }
 
-    func add(url: String, title: String, to listId: UUID) {
-        guard let index = lists.firstIndex(where: { $0.id == listId }) else { return }
-        if let existing = lists[index].items.firstIndex(where: { $0.url == url }) {
-            // Re-adding refreshes the title and floats the item to the top.
-            var item = lists[index].items.remove(at: existing)
-            item.title = title
-            item.addedAt = Date()
-            if item.avatarKey == nil { item.avatarKey = AvatarIdentity.key(forURL: item.url) }
-            lists[index].items.insert(item, at: 0)
-        } else {
-            var item = LinkItem(url: url, title: title)
-            item.avatarKey = AvatarIdentity.key(forURL: url)
-            lists[index].items.insert(item, at: 0)
+    /// Karşılaştırma için sadeleştirilmiş adres. Aynı sayfa `www.`'li/`www.`'siz,
+    /// sonunda eğik çizgiyle ya da `#bölüm` etiketiyle gelebiliyor; bunlar aynı
+    /// bağlantı sayılmazsa "aynı link eklenemesin" kuralı ilk kopyada delinir.
+    /// Saklanan adres olduğu gibi kalır — sadeleştirme yalnız kıyas için.
+    static func canonical(_ raw: String) -> String {
+        guard var parts = URLComponents(string: raw.trimmingCharacters(in: .whitespaces)) else {
+            return raw.trimmingCharacters(in: .whitespaces).lowercased()
         }
+        parts.fragment = nil
+        parts.scheme = parts.scheme?.lowercased()
+        if let host = parts.host?.lowercased() {
+            parts.host = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        }
+        while parts.path.count > 1 && parts.path.hasSuffix("/") { parts.path.removeLast() }
+        return (parts.url?.absoluteString ?? raw).lowercased()
+    }
+
+    /// Listeye bağlantı ekler. Aynı listede aynı bağlantı zaten varsa **hiçbir
+    /// şey yapmaz** ve `false` döner: eskiden eklemek başlığı tazeleyip öğeyi
+    /// başa alıyordu, bu da kullanıcıya "eklendi" gibi görünüp listeyi sessizce
+    /// yeniden sıralıyordu. Çağıran, `false`'ta kullanıcıya durumu söylemeli.
+    @discardableResult
+    func add(url: String, title: String, to listId: UUID) -> Bool {
+        guard let index = lists.firstIndex(where: { $0.id == listId }) else { return false }
+        guard !contains(url: url, in: listId) else { return false }
+        var item = LinkItem(url: url, title: title)
+        item.avatarKey = AvatarIdentity.key(forURL: url)
+        lists[index].items.insert(item, at: 0)
         lists[index].updatedAt = Date()
         saveAndSync()
+        return true
+    }
+
+    /// Bu adres o listede var mı — ekleme ekranı "Ekli" rozetini buna bakarak
+    /// gösterir, böylece kullanıcı dokunmadan önce görür.
+    func contains(url: String, in listId: UUID) -> Bool {
+        guard let list = lists.first(where: { $0.id == listId }) else { return false }
+        let target = Self.canonical(url)
+        return list.items.contains { Self.canonical($0.url) == target }
     }
 
     func removeItems(at offsets: IndexSet, from listId: UUID) {
@@ -127,8 +150,8 @@ final class SiteListStore: ObservableObject {
         let moving = lists[from].items.filter { ids.contains($0.id) }
         guard !moving.isEmpty else { return }
         lists[from].items.removeAll { ids.contains($0.id) }
-        let urls = Set(moving.map { $0.url })
-        lists[to].items.removeAll { urls.contains($0.url) }
+        let urls = Set(moving.map { Self.canonical($0.url) })
+        lists[to].items.removeAll { urls.contains(Self.canonical($0.url)) }
         lists[to].items.insert(contentsOf: moving, at: 0)
         let now = Date()
         lists[from].updatedAt = now

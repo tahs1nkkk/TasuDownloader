@@ -919,6 +919,10 @@ struct AddToListSheet: View {
                 if !store.lists.isEmpty {
                     Section("Listeye ekle") {
                         ForEach(store.lists) { list in
+                            // Bu sayfa o listede zaten varsa satır pasif ve "Ekli"
+                            // rozetli: aynı bağlantı ikinci kez eklenemiyor, üstelik
+                            // kullanıcı dokunmadan önce nedenini görüyor.
+                            let already = store.contains(url: url, in: list.id)
                             Button {
                                 store.add(url: url, title: title, to: list.id)
                                 captureAvatar()
@@ -934,10 +938,18 @@ struct AddToListSheet: View {
                                         .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                                     Text(list.name)
                                     Spacer()
-                                    Text("\(list.items.count)")
-                                        .foregroundStyle(.secondary)
+                                    if already {
+                                        Label("Ekli", systemImage: "checkmark.circle.fill")
+                                            .labelStyle(.titleAndIcon)
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundStyle(.secondary)
+                                    } else {
+                                        Text("\(list.items.count)")
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
                             }
+                            .disabled(already)
                         }
                     }
                 }
