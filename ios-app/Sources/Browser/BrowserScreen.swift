@@ -401,7 +401,7 @@ struct DownloadHUDView: View {
 
     @ViewBuilder private var icon: some View {
         switch phase {
-        case .fetching, .saving, .uploading: ProgressView()
+        case .resolving, .fetching, .saving, .uploading: ProgressView()
         case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
         case .idle: EmptyView()
@@ -410,6 +410,7 @@ struct DownloadHUDView: View {
 
     private var title: String {
         switch phase {
+        case .resolving: return "Bağlantı çözülüyor…"
         case .fetching(let name, _, _, _): return name
         case .saving(let name): return name
         case .uploading(let name): return name

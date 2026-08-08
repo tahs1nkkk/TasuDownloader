@@ -10,6 +10,9 @@ final class Downloader: NSObject, ObservableObject {
 
     enum Phase: Equatable {
         case idle
+        /// Sayfa indirilebilir adres vermedi; kalıcı bağlantıdan çözülüyor.
+        /// Kısa bir API gidiş-dönüşü, ama sessiz geçerse FAB ölü görünür.
+        case resolving
         case fetching(name: String, received: Int64, total: Int64, startedAt: Date)
         case saving(name: String)
         case uploading(name: String)
@@ -129,7 +132,30 @@ final class Downloader: NSObject, ObservableObject {
 
         let rawUrls = (message["urls"] as? [Any] ?? []).compactMap { $0 as? String }
         var seen = Set<String>()
-        let urls = rawUrls.filter { $0.lowercased().hasPrefix("http") && seen.insert($0).inserted }
+        var urls = rawUrls.filter { $0.lowercased().hasPrefix("http") && seen.insert($0).inserted }
+
+        // Her handler kalıcı bağlantıyı aynı adla göndermiyor: Scrolller kendi
+        // içerik sayfasını `scrolllerSourceUrl` diye yolluyor. Yalnız
+        // `fallbackSourceUrl`'e bakmak, o sayfayı hiç görmemek demekti.
+        let sourceUrl = [
+            message["fallbackSourceUrl"] as? String,
+            message["scrolllerSourceUrl"] as? String,
+            pageURL?.absoluteString
+        ].compactMap { $0 }.first { !$0.isEmpty } ?? ""
+
+        // Sayfa indirilebilir adres veremediğinde elde yalnız kalıcı bağlantı
+        // kalır (RedGifs tam ekran/akış blob ile oynatılır, Reddit gömülüsü de
+        // boş liste + watch adresi gönderir). Eklentide bu son adımı arka plan
+        // betiği yapıyor; burada da yapılmazsa doğru bağlantı elde olmasına
+        // rağmen "URL bulunamadı" denip vazgeçiliyordu.
+        if urls.isEmpty, !sourceUrl.isEmpty {
+            phase = .resolving
+            let cookieHeader = HTTPCookie.requestHeaderFields(with: cookies)["Cookie"] ?? ""
+            urls = await MediaResolver.shared
+                .resolve(sourceUrl: sourceUrl, userAgent: userAgent, cookieHeader: cookieHeader)
+                .filter { seen.insert($0).inserted }
+        }
+
         guard !urls.isEmpty else {
             flash("İndirilecek URL bulunamadı")
             return ["ok": false, "error": "IOS01: indirilecek URL yok"]
@@ -140,7 +166,6 @@ final class Downloader: NSObject, ObservableObject {
         let fallbackOnNoTransfer = message["fallbackOnNoTransfer"] as? Bool ?? false
         let transferTimeoutMs = message["transferTimeoutMs"] as? Double ?? 2500
         let namingUrl = message["namingUrl"] as? String
-        let sourceUrl = (message["fallbackSourceUrl"] as? String) ?? pageURL?.absoluteString ?? ""
         let site = MediaNaming.site(for: sourceUrl.isEmpty ? (urls.first ?? "") : sourceUrl)
 
         var errors: [String] = []

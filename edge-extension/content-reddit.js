@@ -1275,6 +1275,51 @@
     return out;
   }
 
+  // Bir <video>'nun DOM'da duran gerçek dosya adresleri. DASH/MSE ile oynatılan
+  // Reddit videolarında `currentSrc` bir `blob:` olur — indirilemez, o yüzden
+  // elenir ve çözüm kalıcı bağlantıya kalır.
+  function directVideoUrls(node) {
+    const raw = [
+      node.currentSrc,
+      node.getAttribute("src"),
+      ...[...node.querySelectorAll("source")].map((source) => source.getAttribute("src"))
+    ];
+    const out = [];
+    for (const value of raw) {
+      const url = String(value || "");
+      if (!/^https?:/i.test(url) || out.includes(url)) continue;
+      out.push(url);
+    }
+    return out;
+  }
+
+  // Reddit'in kendi video ve GIF'leri hiç toplanmıyordu: tarama yalnız <img>
+  // üzerindeydi. Reddit yüklenen GIF'i mp4'e çevirip <video> ile oynatır, bu
+  // yüzden "gifleri algılamıyor" oluyordu. DOM'da indirilebilir bir mp4 varsa o
+  // gönderilir; yoksa gönderinin kalıcı bağlantısı yollanır ve çözüm çağırana
+  // (eklentide arka plan, uygulamada native çözücü) bırakılır.
+  function redditVideoItems(seen) {
+    const out = [];
+    for (const node of deepQueryAll("video")) {
+      const post = postContainer(node) || node;
+      if (seen.has(post)) continue;
+      const rect = node.getBoundingClientRect();
+      if (rect.width < 120 || rect.height < 120) continue;
+      if (onScreenArea(rect) < 10000) continue;
+      const urls = directVideoUrls(node);
+      const permalink = postPermalink(node);
+      if (!urls.length && !permalink) continue;
+      seen.add(post);
+      const source = postSource(node);
+      out.push({
+        el: node, kind: "video", src: urls[0] || "",
+        permalink, title: postTitle(node),
+        resolve: () => sendDirectDownload(urls, { fallbackSourceUrl: permalink, source }).catch(() => {})
+      });
+    }
+    return out;
+  }
+
   // How much of the element is actually on screen — a carousel's off-screen
   // slides translate outside the viewport and score ~0, so they never frame.
   function onScreenArea(rect) {
@@ -1292,6 +1337,10 @@
     // RedGifs embeds first, so their post is claimed before the image scan can
     // frame the embed's poster thumbnail as a still image.
     for (const item of redgifsEmbedItems(seen)) out.push(item);
+
+    // Videolar/GIF'ler görsellerden önce: bir GIF gönderisinin kapak <img>'i
+    // gönderiyi kapıp hareketli medyayı sabit görsele indirgemesin.
+    for (const item of redditVideoItems(seen)) out.push(item);
 
     // One media per post: the largest currently-visible candidate image wins,
     // which in an open gallery is exactly the slide the user is looking at.

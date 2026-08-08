@@ -250,6 +250,29 @@ button { font-family: inherit; }
   max-width: 130px; opacity: 1;
 }
 
+/* Telefonda başlık çubuğu taşıyordu: beş ikon (5×36) + "Dosya Ekle" + marka,
+ * araları 10px'lik boşluklarla, 375px'lik bir ekrana sığmıyor ve son butonlar
+ * kenardan dışarı kaçıyordu. Öğeler gizlenmiyor — hepsi erişilebilir kalsın
+ * diye yalnızca sıkıştırılıyor: daha küçük dokunma hedefleri (32px hâlâ rahat),
+ * daha dar boşluk ve sürüm rozetinin düşmesi yeterli alanı açıyor.
+ * Marka adı zaten min-width:0 + ellipsis ile son çare olarak kısalıyor. */
+@media (max-width: 640px) {
+  .topbar { gap: 6px; padding-left: 10px; padding-right: 10px; }
+  .icon-btn { width: 32px; height: 32px; border-radius: 10px; }
+  .icon-btn svg { width: 17px; height: 17px; }
+  .add-btn { height: 32px; padding: 0 8px; }
+  .brand { gap: 6px; }
+  .brand-dot { width: 22px; height: 22px; }
+  .brand-name { font-size: 14.5px; }
+  .brand-ver { display: none; }
+}
+/* Yalnız gerçekten dar ekranlarda (ölçüldü: 375px'te ~115px boşluk kalıyor,
+ * ad rahat sığıyor) simgeyle yetinilir. */
+@media (max-width: 340px) {
+  .topbar { gap: 4px; }
+  .brand-name { display: none; }
+}
+
 /* --------------------------------------------------------- kenar geçişleri */
 
 .edge {
@@ -551,6 +574,10 @@ body.selecting .media-card:hover { transform: none; }
 .stats-dock, .select-bar {
   position: fixed; left: 50%; transform: translateX(-50%); z-index: 14;
   bottom: calc(16px + var(--safe-b));
+  /* Seçim çubuğunda olan sınır burada eksikti: her istatistik `nowrap` olduğu
+   * için hap telefonda ekranın iki yanından taşıyordu. Sığmadığında kesilmek
+   * yerine kendi içinde kaysın. */
+  max-width: calc(100vw - 24px); overflow-x: auto;
   display: flex; align-items: center; gap: 14px; padding: 9px 18px; border-radius: 99px;
   background: var(--dock); border: 1px solid var(--line);
   backdrop-filter: blur(22px) saturate(160%); -webkit-backdrop-filter: blur(22px) saturate(160%);
@@ -565,9 +592,18 @@ body.selecting .media-card:hover { transform: none; }
 .stat + .stat::before { content: ""; width: 1px; height: 13px; background: var(--line);
   margin-right: 9px; align-self: center; }
 
-.select-bar { gap: 8px; padding: 8px 10px; max-width: calc(100vw - 24px); overflow-x: auto; }
+.select-bar { gap: 8px; padding: 8px 10px; }
 .select-bar .pill { height: 32px; padding: 0 12px; font-size: 12px; }
 .sel-count { font-size: 12.5px; font-weight: 700; padding: 0 8px; white-space: nowrap; }
+
+/* Telefonda hap tam genişliğe yaklaşır; ayıraçlı istatistikler daha sıkı durur
+ * ve kaydırma çubuğu şeridin içinde yer kaplamaz. */
+@media (max-width: 640px) {
+  .stats-dock { gap: 10px; padding: 8px 14px; max-width: calc(100vw - 16px); }
+  .stat + .stat::before { margin-right: 5px; }
+  .stats-dock::-webkit-scrollbar, .select-bar::-webkit-scrollbar { display: none; }
+  .stats-dock, .select-bar { scrollbar-width: none; }
+}
 
 /* ================================================================= çekmece */
 

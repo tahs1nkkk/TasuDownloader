@@ -137,6 +137,19 @@
   const SHADOW_HOSTS = ["rg-scrolller-v2-host"];
   const SHADOW_STYLE_ID = "rg-ios-shadow-css";
   const SHADOW_CSS = `
+    /* Handler butonu uygulamada görünmemeli — ama üretilen stil sayfasındaki
+       "#rg-scrolller-v2-host { opacity: 0 !important }" kuralı ona hiç
+       işlemiyordu: handler kendi gölge ağacında ":host { all: initial !important }"
+       tanımlıyor ve CSS Scoping'e göre important bildirimlerde İÇ ağaç dışı
+       yener. "all", opacity dahil her özelliği sıfırladığı için buton geri
+       geliyordu ("ekranda hala fazladan indirme butonu duruyor"). Tek çare aynı
+       gölge ağacına, o kuraldan SONRA yazmak.
+       display:none değil opacity:0 — native FAB medyayı geometriyle eşleştirip
+       bu butonu "URL çözücü" olarak tıklıyor; kutusu ölçülebilir kalmalı. */
+    :host {
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
     button {
       min-width: 44px !important;
       min-height: 44px !important;
@@ -157,8 +170,21 @@
       }
     };
     patch();
+    // Host'u handler ekliyor ve <body> içine koyuyor; documentElement'i
+    // subtree'siz izlemek yalnız <html>'in doğrudan çocuklarını görür, yani bu
+    // stil pratikte hiç uygulanmıyordu. Subtree açık, ama her mutasyonda değil:
+    // Scrolller akışı çok mutasyon üretir, kare başına bir kez yeter.
+    let queued = false;
+    const schedule = () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => { queued = false; patch(); });
+    };
     try {
-      new MutationObserver(patch).observe(document.documentElement, { childList: true });
+      new MutationObserver(schedule).observe(document.documentElement, {
+        childList: true,
+        subtree: true
+      });
     } catch {
       // No observer: the buttons still work, just at desktop size.
     }
@@ -515,6 +541,28 @@
     return Boolean(picker && target && picker.bar.contains(target));
   }
 
+  // Bir <iframe>'in içine düşen dokunuş üst pencereye HİÇ ulaşmaz: pointerdown
+  // ve pointerup gömülü belgede kalır, seçim modu o kareyi asla göremez. Reddit
+  // gönderilerindeki RedGifs gömülüleri bu yüzden çerçeveleniyor ama seçilemiyor,
+  // dokunuş gömülüye gidiyordu ("çerçeveyi algılıyor ama çerçeve seçilmiyor").
+  // Seçim modu boyunca iframe'ler dokunuşa kapatılıyor: çerçeve görünür kalır,
+  // dokunuş belgeye iner, eşleştirme koordinatla yapılır. Mod bitince kural
+  // kalkıyor ve gömülü yeniden oynatılabilir oluyor.
+  const PICKER_IFRAME_STYLE_ID = "rg-ios-picker-iframe";
+
+  function setIframesInert(on) {
+    const existing = document.getElementById(PICKER_IFRAME_STYLE_ID);
+    if (!on) {
+      existing?.remove();
+      return;
+    }
+    if (existing) return;
+    const style = document.createElement("style");
+    style.id = PICKER_IFRAME_STYLE_ID;
+    style.textContent = "iframe { pointer-events: none !important; }";
+    (document.head || document.documentElement).appendChild(style);
+  }
+
   function pickerGuard(event) {
     if (!picker || inPickerControls(event.target)) return;
     event.preventDefault();
@@ -560,6 +608,7 @@
     removeEventListener("pointerdown", pickerDown, true);
     removeEventListener("pointerup", pickerUp, true);
     removeEventListener("pointercancel", pickerDropTap, true);
+    setIframesInert(false);
     picker.layer.remove();
     picker = null;
     postPickerState(false, 0);
@@ -634,6 +683,7 @@
       timer: setInterval(pickerSync, 700)
     };
     (document.body || document.documentElement).appendChild(layer);
+    setIframesInert(true);
     for (const type of PICKER_GUARDED) addEventListener(type, pickerGuard, true);
     addEventListener("pointerdown", pickerDown, { capture: true, passive: true });
     addEventListener("pointerup", pickerUp, { capture: true, passive: true });
