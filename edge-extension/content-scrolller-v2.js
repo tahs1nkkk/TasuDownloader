@@ -506,8 +506,16 @@
       }))
       .filter((item) => item.area > 18000 && item.rect.width >= 140 && item.rect.height >= 100 && (item.urls.length || item.sourcePageUrl));
 
+    // Görsellerde de içerik sayfası taşınıyor. Eskiden yalnız `urls` vardı: DOM'un
+    // verdiği CDN adresi tutmazsa (imzası geçmiş, boyutlandırılmış türev 404) elde
+    // hiçbir şey kalmıyor, indirme sessizce düşüyordu — "tam ekranda görsel
+    // indirilmiyor" buydu. Sayfa adresi, adres tutmadığında çağıranın (uygulamada
+    // yerel çözücü) başvurabileceği ikinci kapı.
     const images = imageElements
-      .map((media) => ({ media, rect: mediaRect(media), area: visibleArea(media), urls: imageUrls(media), kind: "image" }))
+      .map((media) => ({
+        media, rect: mediaRect(media), area: visibleArea(media),
+        urls: imageUrls(media), sourcePageUrl: scrolllerContentUrlFor(media), kind: "image"
+      }))
       .filter((item) => item.area > 18000 && item.rect.width >= 140 && item.rect.height >= 100 && item.urls.length)
       .filter((image) => !videos.some((video) => overlaps(image.rect, video.rect)))
       .filter((image) => !videoPosters.some((video) => video.media === image.media));

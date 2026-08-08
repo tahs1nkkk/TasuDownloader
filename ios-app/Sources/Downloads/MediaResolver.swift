@@ -199,8 +199,11 @@ actor MediaResolver {
                     let mb = b.element.range(of: "\\.mp4([?#]|$)", options: [.regularExpression, .caseInsensitive]) != nil
                     if ma != mb { return ma }
                 }
-                let ca = Self.contains(a.element, "://proton\\.scrolller\\.com/")
-                let cb = Self.contains(b.element, "://proton\\.scrolller\\.com/")
+                // Scrolller'ın video CDN'i `photon.scrolller.com`. Eskiden
+                // "proton" yazıyordu; hiçbir adrese uymadığından bu basamak
+                // sessizce ölü kalıyor, sıralama sayfa sırasına düşüyordu.
+                let ca = Self.contains(a.element, "://photon\\.scrolller\\.com/")
+                let cb = Self.contains(b.element, "://photon\\.scrolller\\.com/")
                 if ca != cb { return ca }
                 return a.offset < b.offset
             }

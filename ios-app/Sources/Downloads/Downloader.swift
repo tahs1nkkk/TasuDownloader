@@ -137,23 +137,62 @@ final class Downloader: NSObject, ObservableObject {
         // Her handler kalıcı bağlantıyı aynı adla göndermiyor: Scrolller kendi
         // içerik sayfasını `scrolllerSourceUrl` diye yolluyor. Yalnız
         // `fallbackSourceUrl`'e bakmak, o sayfayı hiç görmemek demekti.
-        let sourceUrl = [
+        //
+        // Sayfanın AÇIKÇA verdiği bağlantı ile adres çubuğundaki sayfa ayrı
+        // tutuluyor: ilki o medyanın kendi kalıcı bağlantısı, ikincisi yalnız
+        // "şu an buradayım" demek. Akışta ikincisini çözmek, seçilen videonun
+        // yerine akış sayfasının kapak görselini indirmek olurdu.
+        //
+        // Scrolller ayrıca tutuluyor: `scrolllerSourceUrl` seçilen medyanın KENDİ
+        // içerik sayfası, `fallbackSourceUrl` ise yalnız adres çubuğu (bkz.
+        // native-bridge.js `grab`). Aşağıdaki "önce çöz" adımı bu ayrıma dayanıyor.
+        let scrolllerSource = (message["scrolllerSourceUrl"] as? String) ?? ""
+        let explicitSource = [
             message["fallbackSourceUrl"] as? String,
-            message["scrolllerSourceUrl"] as? String,
-            pageURL?.absoluteString
+            scrolllerSource
         ].compactMap { $0 }.first { !$0.isEmpty } ?? ""
+        let sourceUrl = explicitSource.isEmpty ? (pageURL?.absoluteString ?? "") : explicitSource
+
+        let cookieHeader = HTTPCookie.requestHeaderFields(with: cookies)["Cookie"] ?? ""
+
+        let wantImage = message["imageMode"] as? Bool ?? false
+        let downloadAll = message["downloadAll"] as? Bool ?? false
 
         // Sayfa indirilebilir adres veremediğinde elde yalnız kalıcı bağlantı
         // kalır (RedGifs tam ekran/akış blob ile oynatılır, Reddit gömülüsü de
         // boş liste + watch adresi gönderir). Eklentide bu son adımı arka plan
         // betiği yapıyor; burada da yapılmazsa doğru bağlantı elde olmasına
         // rağmen "URL bulunamadı" denip vazgeçiliyordu.
-        if urls.isEmpty, !sourceUrl.isEmpty {
+        //
+        // Scrolller'da içerik sayfası DOM'dan yetkili, o yüzden ÖNCE çözülüp
+        // sonuçları DOM adreslerinin önüne konuyor — eklentinin arka planı da
+        // (`resolveMediaViaScrolller` + `[...scrolllerUrls, ...message.urls]`)
+        // tam olarak bunu yapıyor. Uygulama ise yalnız liste bomboşken
+        // çözüyordu; kare bir önizleme ya da ölçeklenmiş türev verdiğinde o
+        // tutmayan adresle yetinip pes ediyordu — "akışta video inmiyor" ile
+        // "tam ekranda görsel inmiyor" ikilisi buydu.
+        //
+        // Yalnız Scrolller: `fallbackSourceUrl` adres çubuğundan geliyor, onu
+        // öne almak Reddit galerisinde seçilen karenin yerine gönderinin ilk
+        // görselini indirmek olurdu. Toplu indirmede de yapılmıyor — orada her
+        // adres ayrı bir dosya, çözülen adresleri eklemek aynı medyayı ikilerdi.
+        var resolvedFromSource = false
+        if !scrolllerSource.isEmpty, !downloadAll {
             phase = .resolving
-            let cookieHeader = HTTPCookie.requestHeaderFields(with: cookies)["Cookie"] ?? ""
+            let resolved = await MediaResolver.shared
+                .resolve(sourceUrl: scrolllerSource, userAgent: userAgent, cookieHeader: cookieHeader)
+                .filter { seen.insert($0).inserted }
+            urls = resolved + urls
+            // Denendi sayılıyor (sonuç boş çıksa bile): aşağıdaki ikinci tur
+            // aynı sayfayı bir kez daha çekmesin.
+            resolvedFromSource = true
+        } else if urls.isEmpty, !sourceUrl.isEmpty {
+            // Elde hiç adres yok; geriye yalnız adres çubuğundaki sayfa kalıyor.
+            phase = .resolving
             urls = await MediaResolver.shared
                 .resolve(sourceUrl: sourceUrl, userAgent: userAgent, cookieHeader: cookieHeader)
                 .filter { seen.insert($0).inserted }
+            resolvedFromSource = true
         }
 
         guard !urls.isEmpty else {
@@ -161,57 +200,97 @@ final class Downloader: NSObject, ObservableObject {
             return ["ok": false, "error": "IOS01: indirilecek URL yok"]
         }
 
-        let wantImage = message["imageMode"] as? Bool ?? false
-        let downloadAll = message["downloadAll"] as? Bool ?? false
         let fallbackOnNoTransfer = message["fallbackOnNoTransfer"] as? Bool ?? false
         let transferTimeoutMs = message["transferTimeoutMs"] as? Double ?? 2500
         let namingUrl = message["namingUrl"] as? String
         let site = MediaNaming.site(for: sourceUrl.isEmpty ? (urls.first ?? "") : sourceUrl)
 
         var errors: [String] = []
+        var tried: [String] = []
+        var round = urls
+        var roundWantImage = wantImage
+        // Kaynak sayfa daha okunmadıysa ikinci bir tur hakkı var — ama yalnız
+        // sayfanın kendi verdiği kalıcı bağlantıyla.
+        var mayResolve = !resolvedFromSource && !explicitSource.isEmpty
 
-        if downloadAll {
-            var saved = 0
-            for url in urls {
-                if cancelRequested { break }
-                do {
-                    try await fetchAndSave(
-                        url, namingUrl: url, site: site, sourceUrl: sourceUrl, wantImage: wantImage,
-                        pageURL: pageURL, cookies: cookies, userAgent: userAgent,
-                        idleTimeout: 120, records: records
-                    )
-                    saved += 1
-                } catch {
-                    if cancelRequested { break }
-                    errors.append("\(url): \(error.localizedDescription)")
+        while true {
+            tried.append(contentsOf: round)
+            let outcome = await runRound(
+                urls: round, all: downloadAll, wantImage: roundWantImage,
+                namingUrl: namingUrl, site: site, sourceUrl: sourceUrl,
+                fallbackOnNoTransfer: fallbackOnNoTransfer, transferTimeoutMs: transferTimeoutMs,
+                pageURL: pageURL, cookies: cookies, userAgent: userAgent, records: records
+            )
+            errors.append(contentsOf: outcome.errors)
+
+            if outcome.saved > 0 {
+                if downloadAll {
+                    phase = .done("\(outcome.saved) dosya kaydedildi")
+                    // Galeriye atlanabiliyorsa fiş daha uzun kalsın: dokunmaya vakit olsun.
+                    scheduleDismiss(after: savedReveal != nil ? 6 : 2.0)
+                    return ["ok": true, "mode": "queued", "count": outcome.saved]
                 }
-            }
-            if saved > 0 {
-                phase = .done("\(saved) dosya kaydedildi")
-                // Galeriye atlanabiliyorsa fiş daha uzun kalsın: dokunmaya vakit olsun.
-                scheduleDismiss(after: savedReveal != nil ? 6 : 2.0)
-                return ["ok": true, "mode": "queued", "count": saved]
+                return ["ok": true, "mode": roundWantImage ? "image" : "media", "url": outcome.lastURL]
             }
             if cancelRequested {
                 return ["ok": false, "error": "IOS04: indirme iptal edildi"]
             }
-            return failAll(urls: urls, errors: errors)
-        }
 
-        // Single-item mode: candidates are ordered best-first; stop at the
-        // first one that delivers bytes of the right kind. A short idle
-        // timeout applies only while a fallback is still queued behind.
+            // Sayfanın verdiği adresler hiçbir dosya getirmediyse kalıcı
+            // bağlantı hâlâ elde. Scrolller'da DOM tahmini iki yönde de
+            // yanılabiliyordu — akışta videonun adresi `blob:`e komşu bir
+            // önizleme, tam ekranda görselinki süresi geçmiş bir CDN adresi —
+            // ve tek turda vazgeçildiği için biri inip diğeri inmiyordu. İkinci
+            // turda türü sayfanın kendisi söylüyor, o yüzden `wantImage` vetosu
+            // da kalkıyor: kaynak sayfa DOM tahmininden daha güvenilir.
+            guard mayResolve else { break }
+            mayResolve = false
+            phase = .resolving
+            let fresh = await MediaResolver.shared
+                .resolve(sourceUrl: sourceUrl, userAgent: userAgent, cookieHeader: cookieHeader)
+                .filter { seen.insert($0).inserted }
+            if fresh.isEmpty { break }
+            round = fresh
+            roundWantImage = false
+        }
+        return failAll(urls: tried, errors: errors)
+    }
+
+    /// Tek tur indirme. `all` doğruysa listedeki her adres ayrı dosya olarak
+    /// kaydedilir; değilse adaylar en iyiden başlayarak denenir ve ilk başarıda
+    /// durulur (kısa boşta-kalma süresi yalnız arkada bekleyen aday varken).
+    private func runRound(
+        urls: [String],
+        all: Bool,
+        wantImage: Bool,
+        namingUrl: String?,
+        site: String,
+        sourceUrl: String,
+        fallbackOnNoTransfer: Bool,
+        transferTimeoutMs: Double,
+        pageURL: URL?,
+        cookies: [HTTPCookie],
+        userAgent: String,
+        records: DownloadRecordStore
+    ) async -> (saved: Int, lastURL: String, errors: [String]) {
+        var saved = 0
+        var lastURL = ""
+        var errors: [String] = []
         for (index, url) in urls.enumerated() {
             if cancelRequested { break }
             let hasFallback = index < urls.count - 1
-            let idleTimeout = hasFallback && fallbackOnNoTransfer ? max(0.5, transferTimeoutMs / 1000) : 120
+            let idleTimeout = !all && hasFallback && fallbackOnNoTransfer
+                ? max(0.5, transferTimeoutMs / 1000)
+                : 120
             do {
                 try await fetchAndSave(
-                    url, namingUrl: namingUrl ?? url, site: site, sourceUrl: sourceUrl, wantImage: wantImage,
-                    pageURL: pageURL, cookies: cookies, userAgent: userAgent,
+                    url, namingUrl: all ? url : (namingUrl ?? url), site: site, sourceUrl: sourceUrl,
+                    wantImage: wantImage, pageURL: pageURL, cookies: cookies, userAgent: userAgent,
                     idleTimeout: idleTimeout, records: records
                 )
-                return ["ok": true, "mode": wantImage ? "image" : "media", "url": url]
+                saved += 1
+                lastURL = url
+                if !all { break }
             } catch {
                 // A user cancel must not fall through to the next candidate —
                 // that would look like the cancel did nothing.
@@ -219,10 +298,7 @@ final class Downloader: NSObject, ObservableObject {
                 errors.append("\(url): \(error.localizedDescription)")
             }
         }
-        if cancelRequested {
-            return ["ok": false, "error": "IOS04: indirme iptal edildi"]
-        }
-        return failAll(urls: urls, errors: errors)
+        return (saved, lastURL, errors)
     }
 
     private func failAll(urls: [String], errors: [String]) -> [String: Any] {

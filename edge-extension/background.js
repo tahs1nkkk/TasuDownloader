@@ -650,11 +650,13 @@ async function resolveMediaViaScrolller(pageUrl) {
         const gifB = /\.gif(?:[?#]|$)/i.test(b.url) ? 1 : 0;
         const mp4A = /\.mp4(?:[?#]|$)/i.test(a.url) ? 1 : 0;
         const mp4B = /\.mp4(?:[?#]|$)/i.test(b.url) ? 1 : 0;
-        const protonA = /:\/\/proton\.scrolller\.com\//i.test(a.url) ? 1 : 0;
-        const protonB = /:\/\/proton\.scrolller\.com\//i.test(b.url) ? 1 : 0;
+        // Scrolller'ın video CDN'i `photon.scrolller.com` — "proton" yazımı
+        // hiçbir adrese uymuyordu, bu basamak ölü bir karşılaştırmaydı.
+        const cdnA = /:\/\/photon\.scrolller\.com\//i.test(a.url) ? 1 : 0;
+        const cdnB = /:\/\/photon\.scrolller\.com\//i.test(b.url) ? 1 : 0;
         return (primaryB - primaryA)
           || (gifPost ? gifB - gifA : mp4B - mp4A)
-          || (protonB - protonA)
+          || (cdnB - cdnA)
           || (a.index - b.index);
       })
       .map((item) => item.url);
