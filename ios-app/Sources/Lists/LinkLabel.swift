@@ -121,6 +121,42 @@ enum LinkSite {
     static func initial(_ key: String) -> String {
         String(name(key).prefix(1)).uppercased()
     }
+
+    /// Listenin sitesi: bağlantılarında en çok geçen kaynak. Karışıksa ilk
+    /// sıradaki kazanır; hiç bağlantı yoksa boş. Web'deki `siteOfList` ile aynı
+    /// mantık, aynı sonuç — kart iki tarafta aynı renkle açılıyor.
+    static func of(list: LinkList) -> String {
+        var tally: [String: Int] = [:]
+        var order: [String] = []
+        for item in list.items {
+            let key = LinkSite.key(for: item)
+            if tally[key] == nil { order.append(key) }
+            tally[key, default: 0] += 1
+        }
+        var best = ""
+        var top = 0
+        for key in order where (tally[key] ?? 0) > top {
+            best = key
+            top = tally[key] ?? 0
+        }
+        return best
+    }
+
+    /// Kapağı seçilmemiş listenin varsayılan rengi. Renkler web arşivindeki
+    /// `SITES[...].grad` ile birebir aynı: aynı liste PC'de ve telefonda aynı
+    /// görünsün diye tek kaynaktan kopyalandı.
+    static func gradient(_ key: String) -> [Color] {
+        let hexes: [String]
+        switch key {
+        case "redgifs": hexes = ["#ff2d55", "#ff7a45"]
+        case "reddit": hexes = ["#ff4500", "#ff8717"]
+        case "instagram": hexes = ["#f9ce34", "#ee2a7b", "#6228d7"]
+        case "scrolller": hexes = ["#00c6ff", "#2b5cff"]
+        case "coomer", "kemono": hexes = ["#16c79a", "#0e9f6e"]
+        default: hexes = ["#6b7280", "#3f4653"]
+        }
+        return hexes.map { Color(hex: $0) ?? .gray }
+    }
 }
 
 /// Bir profil/kullanıcı bağlantısının bulut avatar kimliği: `<site>~<kullanıcı>`.

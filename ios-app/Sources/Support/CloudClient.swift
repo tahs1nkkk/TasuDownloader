@@ -178,6 +178,31 @@ struct CloudClient {
         _ = try? await URLSession.shared.data(for: request("api/avatar/\(Self.encode(key: id))", method: "DELETE"))
     }
 
+    /// Arşivin tek meta belgesi (`/api/meta`): arşivler, kategoriler, öğe
+    /// etiketleri ve **liste görünümleri**. Sitenin liste kartlarını çizerken
+    /// okuduğu belgenin ta kendisi olduğu için telefon da aynı yerden okuyor.
+    ///
+    /// Çözümlenmiş bir tip yerine ham sözlük dönüyor: telefon belgenin yalnız
+    /// `lists`/`listCats` kısmını tanıyor, gerisini tanımadan geri yazmak zorunda
+    /// (yoksa her kayıt medya kategorilerini silerdi).
+    func meta() async throws -> [String: Any] {
+        let (data, response) = try await URLSession.shared.data(for: request("api/meta"))
+        try check(response)
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+    }
+
+    /// Belgeyi olduğu gibi geri yazar; sunucu budayıp temizlenmiş hâlini döner.
+    @discardableResult
+    func putMeta(_ document: [String: Any]) async throws -> [String: Any] {
+        var request = request("api/meta", method: "PUT")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: document)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try check(response)
+        let reply = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        return reply?["meta"] as? [String: Any] ?? [:]
+    }
+
     /// AVPlayer and AsyncImage cannot send an Authorization header, so streaming
     /// carries the token as a query parameter — the server accepts both forms.
     func streamURL(key: String) -> URL {

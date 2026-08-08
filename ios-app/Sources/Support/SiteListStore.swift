@@ -110,6 +110,32 @@ final class SiteListStore: ObservableObject {
         cleanupAvatars(for: removed)
     }
 
+    /// Kimliğe göre toplu silme. Süzgeç açıkken ekrandaki sıra listenin gerçek
+    /// sırasıyla ayrıştığı için seçim modu konumla değil kimlikle çalışıyor.
+    func removeItems(ids: Set<UUID>, from listId: UUID) {
+        guard !ids.isEmpty, let index = lists.firstIndex(where: { $0.id == listId }) else { return }
+        let offsets = IndexSet(lists[index].items.indices.filter { ids.contains(lists[index].items[$0].id) })
+        removeItems(at: offsets, from: listId)
+    }
+
+    /// Seçili bağlantıları başka bir listeye taşır. Hedefte aynı adres zaten
+    /// varsa eskisi düşer: taşıma, kopyalama değil.
+    func move(ids: Set<UUID>, from source: UUID, to target: UUID) {
+        guard source != target, !ids.isEmpty,
+              let from = lists.firstIndex(where: { $0.id == source }),
+              let to = lists.firstIndex(where: { $0.id == target }) else { return }
+        let moving = lists[from].items.filter { ids.contains($0.id) }
+        guard !moving.isEmpty else { return }
+        lists[from].items.removeAll { ids.contains($0.id) }
+        let urls = Set(moving.map { $0.url })
+        lists[to].items.removeAll { urls.contains($0.url) }
+        lists[to].items.insert(contentsOf: moving, at: 0)
+        let now = Date()
+        lists[from].updatedAt = now
+        lists[to].updatedAt = now
+        saveAndSync()
+    }
+
     /// Silinen öğelerin avatarını buluttan kaldırır — ama aynı profil başka bir
     /// listede hâlâ duruyorsa (avatar kimliği paylaşımlı) blob'a dokunmaz.
     private func cleanupAvatars(for removed: [LinkItem]) {
