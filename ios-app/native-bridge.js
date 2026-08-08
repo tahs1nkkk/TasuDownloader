@@ -476,6 +476,8 @@
 
   function pickerSync() {
     if (!picker) return;
+    // Akış kaydırıldıkça yeni gömülüler geliyor; onlar da dokunuşa kapatılmalı.
+    setIframesInert(true);
     const seen = new Set();
     for (const media of collectMedia()) {
       seen.add(media.el);
@@ -548,19 +550,65 @@
   // Seçim modu boyunca iframe'ler dokunuşa kapatılıyor: çerçeve görünür kalır,
   // dokunuş belgeye iner, eşleştirme koordinatla yapılır. Mod bitince kural
   // kalkıyor ve gömülü yeniden oynatılabilir oluyor.
+  //
+  // KÖK-GÖLGE: belge düzeyindeki bir <style> gölge ağaçların İÇİNE hiç girmez
+  // (CSS Scoping: belge kuralları gölge köke uygulanmaz). Reddit gömülüyü
+  // <shreddit-embed>'in gölge kökünde oluşturduğu için "iframe { pointer-events:
+  // none }" kuralı o iframe'e hiç ulaşmıyordu — kare çizilip dokunuşun yine
+  // gömülünün içinde kaybolmasının sebebi buydu. Satır içi (inline) !important
+  // her ağaçta en yüksek öncelik olduğundan gerçek çözüm, gölge kökleri de
+  // dolaşıp her çerçeveye tek tek yazmak. Belge kuralı yine de duruyor: ışık
+  // DOM'undaki çerçeveleri bedavaya kapatıyor.
   const PICKER_IFRAME_STYLE_ID = "rg-ios-picker-iframe";
+  let inertFrames = [];
+  let inertSweptAt = 0;
+
+  function deepFrames() {
+    const out = [];
+    const walk = (root) => {
+      if (!root || !root.querySelectorAll) return;
+      for (const frame of root.querySelectorAll("iframe, embed, object")) out.push(frame);
+      for (const node of root.querySelectorAll("*")) {
+        if (node.shadowRoot) walk(node.shadowRoot);
+      }
+    };
+    walk(document);
+    return out;
+  }
 
   function setIframesInert(on) {
     const existing = document.getElementById(PICKER_IFRAME_STYLE_ID);
     if (!on) {
       existing?.remove();
+      for (const { el, prev } of inertFrames) {
+        if (prev) el.style.setProperty("pointer-events", prev.value, prev.priority);
+        else el.style.removeProperty("pointer-events");
+      }
+      inertFrames = [];
+      inertSweptAt = 0;
       return;
     }
-    if (existing) return;
-    const style = document.createElement("style");
-    style.id = PICKER_IFRAME_STYLE_ID;
-    style.textContent = "iframe { pointer-events: none !important; }";
-    (document.head || document.documentElement).appendChild(style);
+    if (!existing) {
+      const style = document.createElement("style");
+      style.id = PICKER_IFRAME_STYLE_ID;
+      style.textContent = "iframe { pointer-events: none !important; }";
+      (document.head || document.documentElement).appendChild(style);
+    }
+    // Gölge kökü taraması ucuz değil; yarım saniyeden sık yapılmıyor. Tekrar
+    // taranmasının sebebi sonsuz akış: aşağı inildikçe yeni gömülüler doğuyor.
+    const now = Date.now();
+    if (inertSweptAt && now - inertSweptAt < 500) return;
+    inertSweptAt = now;
+    const known = new Set(inertFrames.map((entry) => entry.el));
+    for (const frame of deepFrames()) {
+      if (known.has(frame)) continue;
+      const value = frame.style.getPropertyValue("pointer-events");
+      inertFrames.push({
+        el: frame,
+        prev: value ? { value, priority: frame.style.getPropertyPriority("pointer-events") } : null
+      });
+      frame.style.setProperty("pointer-events", "none", "important");
+    }
   }
 
   function pickerGuard(event) {
