@@ -11,6 +11,9 @@ struct SettingsScreen: View {
     @ObservedObject private var favicons = FaviconLoader.shared
     @State private var connectionReport: String?
     @State private var testing = false
+    /// Önbellek boyutu düğmenin etiketinde duruyor; disk okuması olduğu için
+    /// her çizimde değil, ekran açılışında ve sıfırlamadan sonra ölçülüyor.
+    @State private var cacheSize: Int64 = 0
 
     var body: some View {
         NavigationStack {
@@ -83,6 +86,29 @@ struct SettingsScreen: View {
                 }
 
                 Section {
+                    Toggle("Yükleyince cihazdan sil", isOn: $settings.deleteAfterUpload)
+                    if settings.cloudConfigured {
+                        Toggle("Bulut medyasını önbellekte tut", isOn: $settings.cacheCloudMedia)
+                        Button(role: .destructive) {
+                            CloudMediaCache.shared.clear()
+                            cacheSize = CloudMediaCache.shared.size()
+                        } label: {
+                            HStack {
+                                Text("Önbelleği sıfırla")
+                                Spacer()
+                                Text(CloudMediaCache.humanSize(cacheSize))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .disabled(cacheSize == 0)
+                    }
+                } header: {
+                    Text("Galeri")
+                } footer: {
+                    Text("Buluta yükleme bittiğinde dosya cihazdan da silinir — silmeyi Fotoğraflar kendi onay penceresiyle sorar ve yalnız yüklemesi başarılı olanlar silinir. Önbellek açıkken açtığın bulut medyası telefonda saklanır; Galeri → Bulut'ta \"Seç → Tümü → Önbelleğe al\" ile tamamını indirip ağ yokken de açabilirsin.")
+                }
+
+                Section {
                     Toggle("Kullanıcı arama butonu", isOn: $settings.searchOverlayEnabled)
                 } header: {
                     Text("Reddit")
@@ -123,6 +149,7 @@ struct SettingsScreen: View {
                 }
             }
             .navigationTitle("Ayarlar")
+            .task { cacheSize = CloudMediaCache.shared.size() }
         }
     }
 

@@ -6,7 +6,9 @@ import Foundation
 /// endpoint takes. `name` is only the leaf, for showing to a human. Old servers
 /// answered with a bare name and no drive/site; the decoder below still accepts
 /// that shape so a half-updated Worker does not empty the gallery.
-struct CloudFile: Identifiable, Decodable, Equatable {
+/// `Encodable` yanı yalnız önbellek için: çevrimdışı ızgara son başarılı listeyi
+/// diske yazıp geri okuyor (CloudMediaCache).
+struct CloudFile: Identifiable, Codable, Equatable {
     let key: String
     let name: String
     let drive: String

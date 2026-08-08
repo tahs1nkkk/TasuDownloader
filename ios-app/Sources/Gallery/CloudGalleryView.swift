@@ -6,9 +6,14 @@ import UIKit
 /// archive shows it — a square grid grouped by source site, not a file list.
 ///
 /// Videos have no poster in R2 until the web client generates one, so a tile
-/// asks `/api/thumb/<key>` first and falls back to an icon. Nothing is
-/// downloaded to the phone; tapping opens a pager that streams over Range
-/// requests, so seeking a two-hour video costs two hundred kilobytes.
+/// asks `/api/thumb/<key>` first and falls back to an icon. Tapping opens a
+/// pager that streams over Range requests, so seeking a two-hour video costs
+/// two hundred kilobytes.
+///
+/// Ayarlardaki önbellek açıksa açılan (ya da "Önbelleğe al" ile seçilen) medya
+/// telefonda saklanır ve bir sonraki açılışta ağa hiç çıkılmaz; ağ yokken de
+/// ızgara son listeyi önbellekten okuyup yalnız yerelde kopyası olanları
+/// gösterir (bkz. CloudMediaCache).
 struct CloudGalleryView: View {
     @EnvironmentObject private var records: DownloadRecordStore
     @Binding var selecting: Bool
@@ -18,6 +23,13 @@ struct CloudGalleryView: View {
     @State private var site: String = ""
     @State private var opened: PagerStart?
     @State private var chosen: Set<String> = []
+    /// Liste ağdan değil önbellekten geldi — ızgarada yalnız yerelde kopyası
+    /// olanlar var demek.
+    @State private var offline = false
+    /// "Önbelleğe al" ilerlemesi; nil değilken düğme beklemede.
+    @State private var caching: String?
+
+    private let cache = CloudMediaCache.shared
 
     /// fullScreenCover(item:) wants something Identifiable; the start index
     /// alone is not, and passing the file loses "which list am I paging".
@@ -52,29 +64,32 @@ struct CloudGalleryView: View {
                 )
             } else {
                 VStack(spacing: 0) {
+                    if offline { offlineNotice }
                     if sites.count > 1 { siteBar }
                     grid
                 }
             }
         }
+        // Cihaz galerisiyle aynı düzen: seçim ve yenileme ayrı düğmeler.
         .toolbar {
+            if !files.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(selecting ? "İptal" : "Seç") {
+                        selecting.toggle()
+                        chosen.removeAll()
+                    }
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 2) {
-                    if !files.isEmpty {
-                        Button(selecting ? "İptal" : "Seç") {
-                            selecting.toggle()
-                            chosen.removeAll()
-                        }
+                if loading {
+                    ProgressView()
+                } else {
+                    Button {
+                        Task { await load() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
                     }
-                    if loading {
-                        ProgressView()
-                    } else {
-                        Button {
-                            Task { await load() }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                    }
+                    .accessibilityLabel("Yenile")
                 }
             }
         }
@@ -102,21 +117,58 @@ struct CloudGalleryView: View {
         records.revealTarget = nil
     }
 
+    /// Çevrimdışı şerit: ızgaranın neden eksik olduğunu söylemezsek "dosyalarım
+    /// gitti" gibi görünür.
+    private var offlineNotice: some View {
+        Label("Çevrimdışı — yalnız önbellektekiler", systemImage: "wifi.slash")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+    }
+
     /// Bulut seçim çubuğu: cihaz galerisiyle aynı dil. Seçilenleri buluttan
     /// siler, ardından seçim kapanır ve kaynak değiştirici tekrar açılır.
     private var cloudSelectionBar: some View {
-        HStack(spacing: 10) {
-            Text("\(chosen.count) seçili")
-                .font(.system(size: 13, weight: .semibold))
-            Spacer()
-            Button(role: .destructive) {
-                deleteChosen()
-            } label: {
-                Label("Buluttan sil", systemImage: "trash")
+        VStack(spacing: 8) {
+            if let caching {
+                Text(caching)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
-            .disabled(chosen.isEmpty)
+            HStack(spacing: 10) {
+                Button {
+                    if chosen.count == shown.count { chosen.removeAll() }
+                    else { chosen = Set(shown.map(\.id)) }
+                } label: {
+                    Label(chosen.count == shown.count ? "Bırak" : "Tümü",
+                          systemImage: chosen.count == shown.count
+                              ? "checklist.unchecked" : "checklist.checked")
+                }
+                .disabled(shown.isEmpty)
+                Text("\(chosen.count) seçili")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                // Önbellek kapalıyken düğme hiç görünmüyor: açmadan basmak
+                // sessizce hiçbir şey yapmazdı.
+                if cache.isOn {
+                    Button {
+                        cacheChosen()
+                    } label: {
+                        Label("Önbelleğe al", systemImage: "arrow.down.circle")
+                    }
+                    .disabled(chosen.isEmpty || caching != nil || offline)
+                }
+                Button(role: .destructive) {
+                    deleteChosen()
+                } label: {
+                    Label("Buluttan sil", systemImage: "trash")
+                }
+                .disabled(chosen.isEmpty || offline)
+            }
+            .font(.system(size: 13, weight: .semibold))
         }
-        .font(.system(size: 13, weight: .semibold))
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .liquidGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -129,9 +181,37 @@ struct CloudGalleryView: View {
         files.removeAll { chosen.contains($0.id) }
         selecting = false
         chosen.removeAll()
+        // Buluttan giden dosyanın yerel kopyası da düşer, yoksa önbellek
+        // silinmiş dosyaları taşımaya devam ederdi.
+        for file in doomed { cache.drop(key: file.key) }
+        cache.saveListing(files)
         guard let cloud = CloudClient.fromSettings() else { return }
         Task {
             for file in doomed { try? await cloud.delete(key: file.key) }
+        }
+    }
+
+    /// Seçilenleri tek tek indirip önbelleğe yazar — "tümünü seç → önbelleğe al"
+    /// bütün arşivi telefona alma yolu.
+    private func cacheChosen() {
+        guard let cloud = CloudClient.fromSettings() else { return }
+        let picked = files.filter { chosen.contains($0.id) }
+        guard !picked.isEmpty else { return }
+        caching = "0/\(picked.count) indiriliyor…"
+        Task {
+            var done = 0
+            for file in picked {
+                await cache.fetchAndStore(key: file.key, from: cloud.streamURL(key: file.key))
+                if file.isVideo {
+                    await cache.fetchAndStore(key: file.key, from: cloud.thumbURL(key: file.key), kind: .thumb)
+                }
+                done += 1
+                caching = "\(done)/\(picked.count) indiriliyor…"
+            }
+            cache.saveListing(files)
+            caching = nil
+            selecting = false
+            chosen.removeAll()
         }
     }
 
@@ -227,11 +307,25 @@ struct CloudGalleryView: View {
         defer { loading = false }
         do {
             files = try await cloud.list()
+            offline = false
             if !site.isEmpty && !files.contains(where: { $0.site == site }) { site = "" }
             status = nil
+            cache.saveListing(files)
             attemptReveal()
         } catch {
-            status = error.localizedDescription
+            // Ağ yokken önbellekteki son liste devreye girer, ama yalnız
+            // gerçekten yerelde duran dosyalarla: kopyası olmayan bir öğe
+            // açıldığında sonsuza kadar dönen bir çark olurdu.
+            let cached = cache.isOn ? (cache.listing() ?? []).filter { cache.has($0.key) } : []
+            if cached.isEmpty {
+                status = error.localizedDescription
+            } else {
+                files = cached
+                offline = true
+                status = nil
+                if !site.isEmpty && !files.contains(where: { $0.site == site }) { site = "" }
+                attemptReveal()
+            }
         }
     }
 
@@ -239,6 +333,8 @@ struct CloudGalleryView: View {
     /// kalır. Sunucu hata verirse bir sonraki yenilemede geri gelir.
     private func remove(_ file: CloudFile) {
         files.removeAll { $0.key == file.key }
+        cache.drop(key: file.key)
+        cache.saveListing(files)
         guard let cloud = CloudClient.fromSettings() else { return }
         Task { try? await cloud.delete(key: file.key) }
     }
@@ -248,7 +344,11 @@ struct CloudGalleryView: View {
 private struct CloudTile: View {
     let file: CloudFile
 
+    /// Kapağın adresi. Yerelde kopya varsa `file://` döner: hem ağ yokken karo
+    /// çizilir hem de her kaydırmada aynı baytlar yeniden inmez.
     private var source: URL? {
+        let kind: CloudMediaCache.Kind = file.isVideo ? .thumb : .media
+        if let local = CloudMediaCache.shared.localURL(for: file.key, kind: kind) { return local }
         guard let cloud = CloudClient.fromSettings() else { return nil }
         return file.isVideo ? cloud.thumbURL(key: file.key) : cloud.streamURL(key: file.key)
     }
@@ -412,25 +512,44 @@ private struct CloudPage: View {
     }
 
     private func startIfNeeded() {
-        guard file.isVideo, player == nil, let cloud = CloudClient.fromSettings() else {
+        guard file.isVideo, player == nil else {
             player?.play()
             return
         }
+        // Yerel kopya varsa ondan oynat: çevrimdışı çalışan tek yol bu, üstelik
+        // aramada (seek) Range isteği beklemez.
+        if let local = CloudMediaCache.shared.localURL(for: file.key) {
+            let created = AVPlayer(url: local)
+            player = created
+            created.play()
+            return
+        }
+        guard let cloud = CloudClient.fromSettings() else { return }
         let created = AVPlayer(url: cloud.streamURL(key: file.key))
         player = created
         created.play()
+        // Açılan video arka planda önbelleğe de iner (ayar kapalıysa hiçbir şey
+        // yapmaz). Akış zaten sürüyor, bu ikinci geçiş yalnız bir dahaki sefer için.
+        Task { await CloudMediaCache.shared.fetchAndStore(key: file.key, from: cloud.streamURL(key: file.key)) }
     }
 
     /// Zoomable görsel bir UIImage ister; AsyncImage yerine akışı doğrudan
     /// indiriyoruz (token ve bant sınırı zaten streamURL sorgusunda).
     private func loadImageIfNeeded() {
-        guard !file.isVideo, image == nil, !failed,
-              let cloud = CloudClient.fromSettings() else { return }
+        guard !file.isVideo, image == nil, !failed else { return }
+        let cache = CloudMediaCache.shared
+        // Önce yerel kopya — çevrimdışı erişimin tamamı buradan geçiyor.
+        if let data = cache.data(for: file.key), let ui = UIImage(data: data) {
+            image = ui
+            return
+        }
+        guard let cloud = CloudClient.fromSettings() else { failed = true; return }
         Task {
             do {
                 let (data, response) = try await URLSession.shared.data(from: cloud.streamURL(key: file.key))
                 let code = (response as? HTTPURLResponse)?.statusCode ?? 200
                 if (200...299).contains(code), let ui = UIImage(data: data) {
+                    cache.store(data, for: file.key)
                     await MainActor.run { image = ui }
                 } else {
                     await MainActor.run { failed = true }

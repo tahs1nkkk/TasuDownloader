@@ -109,6 +109,13 @@ final class AppSettings: ObservableObject {
     /// tarafında bir indirmeyi gerçekten kısmanın yolu yok.
     @Published var bwDown: Int { didSet { persist() } }
     @Published var bwUp: Int { didSet { persist() } }
+    /// Galeriden buluta yükleme bittiğinde dosyayı cihazdan da sil. Silmeyi
+    /// Fotoğraflar'ın kendi onayı yapıyor (sistem penceresi), yani açık olsa bile
+    /// kullanıcıya sormadan hiçbir şey kaybolmuyor.
+    @Published var deleteAfterUpload: Bool { didSet { persist() } }
+    /// Bulut medyasını telefonda sakla — açılan ve "önbelleğe al" denen dosyalar
+    /// yerelde kalır, böylece ağ yokken de görüntülenebilir.
+    @Published var cacheCloudMedia: Bool { didSet { persist() } }
 
     /// Web tarafındaki `BW_FREE` ile aynı eşik (core.js).
     static let bwFree = 1000
@@ -144,6 +151,12 @@ final class AppSettings: ObservableObject {
         downloadDestination = DownloadDestination(rawValue: defaults.string(forKey: "downloadDestination") ?? "") ?? .photos
         bwDown = defaults.object(forKey: "bwDown") as? Int ?? 0
         bwUp = defaults.object(forKey: "bwUp") as? Int ?? 0
+        // "Buluta taşıdıktan sonra cihazdan silinsin" istendiği için varsayılan
+        // açık; yine de her silmede Fotoğraflar kendi onayını soruyor.
+        deleteAfterUpload = defaults.object(forKey: "deleteAfterUpload") as? Bool ?? true
+        // Önbellek varsayılan kapalı: telefonun deposunu kullanıcı istemeden
+        // doldurmak, "buluta koy" demenin tam tersi olurdu.
+        cacheCloudMedia = defaults.object(forKey: "cacheCloudMedia") as? Bool ?? false
         if let data = defaults.data(forKey: "extraSettings"),
            let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             extraSettings = parsed
@@ -205,6 +218,8 @@ final class AppSettings: ObservableObject {
         defaults.set(downloadDestination.rawValue, forKey: "downloadDestination")
         defaults.set(bwDown, forKey: "bwDown")
         defaults.set(bwUp, forKey: "bwUp")
+        defaults.set(deleteAfterUpload, forKey: "deleteAfterUpload")
+        defaults.set(cacheCloudMedia, forKey: "cacheCloudMedia")
         notify()
     }
 

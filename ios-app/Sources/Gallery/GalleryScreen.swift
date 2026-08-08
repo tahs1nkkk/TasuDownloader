@@ -93,17 +93,21 @@ struct DeviceGalleryView: View {
 
     var body: some View {
         content
+            // "Seç" ile yenileme ayrı birer ToolbarItem: tek bir HStack içinde
+            // dururken iki iş tek düğme gibi görünüyor, aralarındaki 2 punto
+            // boşlukta yanlış olana basılıyordu.
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 2) {
-                        if !items.isEmpty {
-                            Button(selecting ? "İptal" : "Seç") {
-                                selecting.toggle()
-                                chosen.removeAll()
-                            }
+                if !items.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(selecting ? "İptal" : "Seç") {
+                            selecting.toggle()
+                            chosen.removeAll()
                         }
-                        Button(action: refresh) { Image(systemName: "arrow.clockwise") }
                     }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: refresh) { Image(systemName: "arrow.clockwise") }
+                        .accessibilityLabel("Yenile")
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -213,6 +217,17 @@ struct DeviceGalleryView: View {
                     .foregroundStyle(.secondary)
             }
             HStack(spacing: 10) {
+                // Tümünü seç / bırak tek düğme: hepsi zaten seçiliyse aynı yere
+                // basmak seçimi boşaltır, yoksa her şeyi işaretler.
+                Button {
+                    if chosen.count == items.count { chosen.removeAll() }
+                    else { chosen = Set(items.map(\.id)) }
+                } label: {
+                    Label(chosen.count == items.count ? "Bırak" : "Tümü",
+                          systemImage: chosen.count == items.count
+                              ? "checklist.unchecked" : "checklist.checked")
+                }
+                .disabled(items.isEmpty)
                 Text("\(chosen.count) seçili")
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
@@ -306,23 +321,30 @@ struct DeviceGalleryView: View {
         let picked = items.filter { chosen.contains($0.id) }
         uploadProgress = "0/\(picked.count) yükleniyor…"
         Task {
-            var done = 0
+            var uploaded: [GalleryItem] = []
             var failed = 0
             for item in picked {
                 do {
                     try await CloudUploader.upload(item: item, client: cloud)
-                    done += 1
+                    uploaded.append(item)
                 } catch {
                     failed += 1
                 }
-                uploadProgress = "\(done + failed)/\(picked.count) yükleniyor…"
+                uploadProgress = "\(uploaded.count + failed)/\(picked.count) yükleniyor…"
             }
+            let done = uploaded.count
             uploadProgress = nil
             selecting = false
             chosen.removeAll()
+            // "Buluta taşı" gerçekten taşıma olsun: yüklenenler cihazdan da
+            // düşer. YALNIZ yüklemesi başarılı olanlar — yarısı yükselmemişken
+            // hepsini silmek, dosyayı hiçbir yerde bırakmamak demekti. Silme
+            // onayını Fotoğraflar'ın kendi penceresi soruyor.
+            let willDelete = settings.deleteAfterUpload && !uploaded.isEmpty
             Downloader.shared.phase = failed == 0
-                ? .done("\(done) dosya buluta yüklendi")
+                ? .done(willDelete ? "\(done) dosya buluta taşındı" : "\(done) dosya buluta yüklendi")
                 : .failed("\(done) yüklendi, \(failed) başarısız")
+            if willDelete { deleteFromPhotos(uploaded) }
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             if case .done = Downloader.shared.phase { Downloader.shared.phase = .idle }
             if case .failed = Downloader.shared.phase { Downloader.shared.phase = .idle }
