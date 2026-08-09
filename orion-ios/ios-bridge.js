@@ -446,8 +446,13 @@
 
   /* ----------------------------------------------------------- message logic */
 
-  async function prepare(url, site, wantImage, options) {
-    showPanel({ name: fileNameFor(url, site), msg: "İndiriliyor…", progress: 0, ready: false, failed: false });
+  async function prepare(url, site, wantImage, options = {}) {
+    // İndirilen adres ile adın türetildiği adres ayrı olabilir: Coomer'ın
+    // indirilebilir adresi bir karma, gerçek ad `namingUrl`'in `?f=`
+    // parametresinde. background.js aynı ayrımı `downloadToFile(..., namingUrl)`
+    // ile yapıyor; burada okunmadığı için dosyalar karma adıyla kaydediliyordu.
+    const filename = fileNameFor(options.namingUrl || url, site);
+    showPanel({ name: filename, msg: "İndiriliyor…", progress: 0, ready: false, failed: false });
     // Coomer's CDN often answers without a content-length, which left the bar at
     // 0% for the whole transfer and made a working download look frozen. Show
     // the bytes and the rate instead, so a slow host reads as slow, not stuck.
@@ -457,24 +462,47 @@
     }, options);
     if (wantImage && !/^image\//i.test(blob.type || "")) throw new Error("NOT_AN_IMAGE");
     if (!blob.size) throw new Error("EMPTY_BODY");
-    return { blob, url, filename: fileNameFor(url, site) };
+    return { blob, url, filename };
   }
 
   async function handleDirectDownload(message) {
-    const urls = [...new Set((message.urls || []).filter((u) => typeof u === "string" && /^https?:\/\//i.test(u)))];
+    const site = siteFromUrl(message.fallbackSourceUrl || location.href);
+    const wantImage = Boolean(message.imageMode);
+    const namingUrl = typeof message.namingUrl === "string" ? message.namingUrl : "";
+    const errors = [];
+
+    // Scrolller'da DOM'un verdiği adres çoğu zaman kare bir önizleme ya da
+    // ölçeklenmiş türev; yetkili kaynak medyanın KENDİ içerik sayfası. Önce o
+    // çözülüp sonuçlar DOM adreslerinin önüne konuyor — background.js
+    // (`[...scrolllerUrls, ...message.urls]`) ve Swift `Downloader` da tam
+    // olarak bunu yapıyor. Bu yapı anahtarı hiç okumadığı için "akışta video
+    // inmiyor" / "tam ekranda görsel inmiyor" ikilisi burada sürüyordu.
+    //
+    // Yalnız tek indirmede: toplu indirmede her adres ayrı bir dosya, çözülen
+    // adresleri eklemek aynı medyayı ikilerdi (Swift tarafındaki koşulun aynısı).
+    //
+    // `fallbackSourceUrl`'e genişletilemez: o yalnız adres çubuğu, çözmek
+    // Reddit galerisinde seçilen karenin yerine gönderinin ilk görselini
+    // indirmek olurdu. Bkz. debug-notes/parite.md.
+    let resolved = [];
+    if (message.scrolllerSourceUrl && !message.downloadAll && globalThis.RG_SCROLLLER) {
+      showPanel({ msg: "Kaynak sayfa çözülüyor…", progress: null, ready: false, failed: false });
+      resolved = await globalThis.RG_SCROLLLER.resolveMediaViaScrolller(message.scrolllerSourceUrl);
+    }
+
+    const urls = [...new Set([...resolved, ...(message.urls || [])]
+      .filter((u) => typeof u === "string" && /^https?:\/\//i.test(u)))];
     if (!urls.length) {
       showPanel({ msg: "İndirilecek URL bulunamadı.", progress: null, ready: false });
       return { ok: false, error: "IOS01: indirilecek URL yok" };
     }
 
-    const site = siteFromUrl(message.fallbackSourceUrl || location.href);
-    const list = message.downloadAll ? urls : urls;
-    const wantImage = Boolean(message.imageMode);
-    const errors = [];
-
     if (message.downloadAll) {
       let saved = 0;
-      for (const url of list) {
+      // Toplu indirmede ad tek tek adresten gelir; `namingUrl` burada
+      // uygulanırsa bütün dosyalar aynı adı alır (background.js de bu dalda
+      // adresin kendisini geçiyor).
+      for (const url of urls) {
         try {
           enqueue(await prepare(url, site, wantImage));
           saved += 1;
@@ -488,16 +516,16 @@
 
     // Single-item mode: the candidate list is ordered best-first, so stop at the
     // first URL that actually delivers bytes of the right kind.
-    for (const [index, url] of list.entries()) {
+    for (const [index, url] of urls.entries()) {
       // content-coomer.js asks for a short leash on its preferred candidate so a
       // stalling CDN hands over to the already-loaded thumbnail instead of
       // blocking. Only meaningful while something is still queued behind it.
-      const hasFallback = index < list.length - 1;
+      const hasFallback = index < urls.length - 1;
       const firstByteTimeoutMs = hasFallback && message.fallbackOnNoTransfer
         ? Number(message.transferTimeoutMs) || 2500
         : 0;
       try {
-        enqueue(await prepare(url, site, wantImage, { firstByteTimeoutMs }), { autoShare: true });
+        enqueue(await prepare(url, site, wantImage, { firstByteTimeoutMs, namingUrl }), { autoShare: true });
         // The download tap's activation may still be alive; if it is, this
         // reaches the share sheet with no second tap.
         await saveHead({ auto: true });

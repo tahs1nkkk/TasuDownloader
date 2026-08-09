@@ -68,6 +68,7 @@
       ],
       "js": [
         "common/settings.js",
+        "common/scrolller-resolve.js",
         "ios-bridge.js",
         "content-folders.js",
         "content-scrolller-v2.js"

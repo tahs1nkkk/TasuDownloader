@@ -1,9 +1,12 @@
-importScripts("common/settings.js", "common/cloud.js");
+importScripts("common/settings.js", "common/cloud.js", "common/scrolller-resolve.js");
 
 const RIPSNIP_URL = "https://ripsnip.com/";
 const MEDIA_RE = /\.(mp4|webm|mov|m4v)(?:[?#].*)?$/i;
 const DOWNLOAD_RE = /\.(mp4|webm|mov|m4v|jpg|jpeg|png|webp|gif)(?:[?#].*)?$/i;
 const { SETTINGS_KEY, LEGACY_SETTINGS_KEY, DEFAULT_SETTINGS } = globalThis.RG_SETTINGS;
+// Orion yapısında background worker yok; çözücü ortak dosyaya taşındı ki iki
+// yapı da aynı kuralı çalıştırsın (bkz. common/scrolller-resolve.js).
+const { resolveMediaViaScrolller } = globalThis.RG_SCROLLLER;
 
 // Ayar anahtarı yeniden adlandırıldı (rgRipsnipSettings -> tasuDownloaderSettings).
 // Mevcut kurulumlar ayarlarını eski anahtarda tutuyor; service worker her
@@ -615,71 +618,6 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
     return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     clearTimeout(timer);
-  }
-}
-
-async function resolveMediaViaScrolller(pageUrl) {
-  if (!pageUrl) return [];
-  try {
-    const parsed = new URL(pageUrl);
-    if (!(parsed.hostname === "scrolller.com" || parsed.hostname.endsWith(".scrolller.com"))) return [];
-    const response = await fetchWithTimeout(parsed.href, {
-      method: "GET",
-      cache: "no-store",
-      redirect: "follow",
-      credentials: "include"
-    }, 10000);
-    if (!response.ok) return [];
-    const html = (await response.text())
-      .replace(/\\u002f/gi, "/")
-      .replace(/\\\//g, "/")
-      .replace(/&amp;/gi, "&");
-    const primaryVideos = [];
-    const primaryImages = [];
-    for (const tag of (html.match(/<meta\b[^>]*>/gi) || [])) {
-      const key = tag.match(/(?:property|name)=["']([^"']+)["']/i)?.[1]?.toLowerCase() || "";
-      const content = tag.match(/content=["']([^"']+)["']/i)?.[1] || "";
-      if (!/^https?:\/\//i.test(content)) continue;
-      if (/og:video|twitter:player:stream/.test(key)) primaryVideos.push(content);
-      else if (/og:image|twitter:image/.test(key)) primaryImages.push(content);
-    }
-    const allUrls = html.match(/https?:\/\/[^\s"'<>]+?\.(?:mp4|webm|m4v|mov|gif|webp|png|jpe?g)(?:\?[^\s"'<>]*)?/gi) || [];
-    const gifPost = primaryImages.some((url) => /\.gif(?:[?#]|$)/i.test(url))
-      || /["'](?:isGif|is_gif)["']\s*:\s*true/i.test(html)
-      || /["'](?:mediaType|media_type)["']\s*:\s*["']gif["']/i.test(html);
-    const videoPost = primaryVideos.length > 0
-      || /["'](?:isVideo|is_video)["']\s*:\s*true/i.test(html)
-      || /["'](?:mediaType|media_type)["']\s*:\s*["']video["']/i.test(html)
-      || /<video\b/i.test(html);
-    const primary = primaryVideos.length
-      ? primaryVideos
-      : gifPost
-        ? primaryImages.filter((url) => /\.gif(?:[?#]|$)/i.test(url))
-        : videoPost
-          ? []
-          : primaryImages;
-    const urls = [...new Set([...primary, ...allUrls])];
-    return urls
-      .map((url, index) => ({ url, index }))
-      .sort((a, b) => {
-        const primaryA = primary.includes(a.url) ? 1 : 0;
-        const primaryB = primary.includes(b.url) ? 1 : 0;
-        const gifA = /\.gif(?:[?#]|$)/i.test(a.url) ? 1 : 0;
-        const gifB = /\.gif(?:[?#]|$)/i.test(b.url) ? 1 : 0;
-        const mp4A = /\.mp4(?:[?#]|$)/i.test(a.url) ? 1 : 0;
-        const mp4B = /\.mp4(?:[?#]|$)/i.test(b.url) ? 1 : 0;
-        // Scrolller'ın video CDN'i `photon.scrolller.com` — "proton" yazımı
-        // hiçbir adrese uymuyordu, bu basamak ölü bir karşılaştırmaydı.
-        const cdnA = /:\/\/photon\.scrolller\.com\//i.test(a.url) ? 1 : 0;
-        const cdnB = /:\/\/photon\.scrolller\.com\//i.test(b.url) ? 1 : 0;
-        return (primaryB - primaryA)
-          || (gifPost ? gifB - gifA : mp4B - mp4A)
-          || (cdnB - cdnA)
-          || (a.index - b.index);
-      })
-      .map((item) => item.url);
-  } catch {
-    return [];
   }
 }
 
