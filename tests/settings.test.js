@@ -5,7 +5,7 @@ const {
   siteFromUrl,
   mediaCategoryFromUrl,
   downloadDirectory
-} = require("../edge-extension/common/settings.js");
+} = require("../shared/core/settings.js");
 
 assert.equal(DEFAULT_SETTINGS.folderLayout, "organized");
 assert.equal(cleanPathPart('  Work: Clips?  '), "Work- Clips");

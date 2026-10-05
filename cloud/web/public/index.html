@@ -15,11 +15,16 @@
   <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
 
+  <!-- Pico.css: sade taban katman — tipografi, form öğeleri ve odak halkaları
+       için makul varsayılanlar. Kendi sunucumuzda, CDN yok. style.css'ten ÖNCE
+       gelir ki aşağıdaki özel bileşen kuralları çakışmada üste çıksın; tema
+       değişkenleri (--pico-*) style.css içinde bizim maviye eşleniyor ve Pico
+       bizimle aynı data-theme'i okuduğu için açık/koyu tema kendiliğinden uyar. -->
+  <link rel="stylesheet" href="vendor/pico.min.css">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="glass-theme.css">
 </head>
 <body>
-  <!-- Zemindeki renk yıkaması. Sabit ve etkileşimsiz; her katman onun üstünde. -->
-  <div class="aura" aria-hidden="true"></div>
 
   <!-- ============================================================ 1. kapı ==
        Girişte tek soru: listeler mi, medya mı. İki yarım, ekranı tam kaplar. -->

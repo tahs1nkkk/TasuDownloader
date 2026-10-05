@@ -1,19 +1,14 @@
 import Foundation
 
-/// Swift port of the filename/site helpers the Orion bridge mirrors from
-/// background.js — same cleaning rules so files keep familiar names.
+/// Platform filename/MIME handling. Site identity and variant trimming delegate
+/// to the same bundled rules used by Edge and Orion.
 enum MediaNaming {
     static let videoExtensions: Set<String> = ["mp4", "m4v", "mov", "webm"]
     static let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "webp", "gif", "heic"]
 
     static func site(for urlString: String) -> String {
         guard let host = URL(string: urlString)?.host?.lowercased() else { return "Other" }
-        if host == "redgifs.com" || host.hasSuffix(".redgifs.com") { return "RedGifs" }
-        if host == "reddit.com" || host.hasSuffix(".reddit.com") { return "Reddit" }
-        if host == "instagram.com" || host.hasSuffix(".instagram.com") { return "Instagram" }
-        if host == "scrolller.com" || host.hasSuffix(".scrolller.com") { return "Scrolller" }
-        if host == "coomer.st" || host.hasSuffix(".coomer.st") { return "Coomer" }
-        return "Other"
+        return SharedCore.shared.value(String.self, operation: "siteForHost", input: host, fallback: "Other")
     }
 
     static func cleanFileName(_ value: String) -> String {
@@ -29,26 +24,7 @@ enum MediaNaming {
     /// named `<slug>` not `<slug>-large` (RedGifs) or `<slug>_1920x1080` (Scrolller).
     /// Only trailing tokens go, and never the whole name.
     static func stripVariantSuffix(_ stem: String) -> String {
-        let patterns = [
-            "[-_](?:small|mobile|mini|thumbnail|thumb|preview|poster|sd|hd|medium|large)$",
-            "[-_][0-9]{2,5}x[0-9]{2,5}$",   // 1920x1080
-            "[-_][0-9]{3,4}p$"              // 1080p, 720p
-        ]
-        var text = stem
-        var keepGoing = true
-        while keepGoing {
-            keepGoing = false
-            for pattern in patterns {
-                let stripped = text.replacingOccurrences(
-                    of: pattern, with: "", options: [.regularExpression, .caseInsensitive]
-                )
-                if stripped != text && !stripped.isEmpty {
-                    text = stripped
-                    keepGoing = true
-                }
-            }
-        }
-        return text
+        SharedCore.shared.value(String.self, operation: "stripVariant", input: stem, fallback: stem)
     }
 
     static func fileExtension(of urlString: String) -> String {

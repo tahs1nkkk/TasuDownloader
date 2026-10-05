@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>Roblox Friend Tracker</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo"><img id="logoImg" alt="" /></div>
+        <div class="brand-text">
+          <div class="brand-title">Friend Tracker</div>
+          <div class="brand-sub" id="whoami" data-i18n="loading">Loading...</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button id="navGames" class="icon-btn nav-app" data-panel="games" data-i18n-title="tab_games" title="Games"></button>
+        <button id="navReview" class="icon-btn nav-app" data-panel="review" data-i18n-title="tab_review" title="Dada"></button>
+        <span class="top-sep"></span>
+        <button id="themeBtn" class="icon-btn" title="Theme"></button>
+        <button id="pinBtn" class="icon-btn" title="Detach"></button>
+        <button id="refreshBtn" class="icon-btn" data-i18n-title="refreshTitle" title="Check now"></button>
+      </div>
+    </header>
+
+    <div class="accounts" id="accountsBar"></div>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="friends" data-i18n="tab_friends">Friends</button>
+      <button class="tab" data-tab="alerts">
+        <span data-i18n="tab_alerts">Activity</span>
+        <span class="badge" id="alertBadge" hidden>0</span>
+      </button>
+      <button class="tab" data-tab="timeline" data-i18n="tab_timeline">Timeline</button>
+      <button class="tab" data-tab="settings" data-i18n="tab_settings">Settings</button>
+    </nav>
+
+    <main>
+      <section id="tab-friends" class="panel active">
+        <div class="segmented">
+          <button class="seg active" data-view="friends" data-i18n="viewFriends">Friends</button>
+          <button class="seg" data-view="nofollow" data-i18n="viewNoFollow">Not following back</button>
+        </div>
+        <div class="fbar">
+          <div class="view-toggle">
+            <button id="vtList" class="vt active" data-layout="list" data-i18n-title="viewList" title="List view"></button>
+            <button id="vtGrid" class="vt" data-layout="grid" data-i18n-title="viewGrid" title="Grid view"></button>
+          </div>
+          <input id="friendSearch" class="search" data-i18n-ph="search" placeholder="Search..." />
+          <button id="bulkBtn" class="icon-sm" data-i18n-title="bulkSelect" title="Select to remove" hidden></button>
+        </div>
+        <div id="friendsList" class="list"></div>
+      </section>
+
+      <section id="tab-alerts" class="panel">
+        <div class="panel-head">
+          <span id="alertCount" class="muted">0</span>
+          <button id="markReadBtn" class="text-btn" data-i18n="markAllRead">Mark all read</button>
+        </div>
+        <div id="alertsList" class="list"></div>
+      </section>
+
+      <section id="tab-timeline" class="panel">
+        <div class="fbar">
+          <button id="tlFilterBtn" class="filter-btn" type="button"></button>
+        </div>
+        <div id="timelineList" class="list"></div>
+      </section>
+
+      <section id="tab-games" class="panel">
+        <div class="fbar">
+          <button id="gameAddBtn" class="mini-btn"></button>
+          <span class="fbar-spacer"></span>
+          <button id="gameEditBtn" class="icon-sm" data-i18n-title="edit" title="Edit"></button>
+        </div>
+        <div id="gamesList" class="games-grid"></div>
+      </section>
+
+      <section id="tab-review" class="panel">
+        <div class="review-tool">
+          <div class="review-cycles">
+            <button id="reviewToneBtn" class="review-cycle review-tone" type="button"></button>
+            <button id="reviewStyleBtn" class="review-cycle review-style" type="button"></button>
+            <button id="reviewGenderBtn" class="review-cycle review-gender" type="button"></button>
+          </div>
+
+          <div class="review-switches">
+            <label class="review-switch">
+              <input id="reviewAsciiToggle" type="checkbox" checked />
+              <span></span>
+              <b data-review-i18n="turkishChars">Turkish chars</b>
+            </label>
+            <label class="review-switch">
+              <input id="reviewEmojiToggle" type="checkbox" />
+              <span></span>
+              <b data-review-i18n="extraEmoji">Extra emoji</b>
+            </label>
+            <label class="review-switch">
+              <input id="reviewNoteToggle" type="checkbox" />
+              <span></span>
+              <b data-review-i18n="note">Note</b>
+            </label>
+            <label class="review-switch">
+              <input id="reviewBadgeToggle" type="checkbox" />
+              <span></span>
+              <b data-review-i18n="badge">Badge</b>
+            </label>
+          </div>
+
+          <div class="review-score" id="reviewScoreLabel">Score: 6/10</div>
+          <div id="reviewRatingRows" class="review-ratings"></div>
+
+          <div class="review-actions">
+            <button id="reviewGenerateBtn" class="review-primary" type="button" data-review-i18n="generate">Generate</button>
+            <button id="reviewDecalBtn" type="button">Decal ID</button>
+            <button id="reviewCopyBtn" type="button" data-review-i18n="copy">Copy</button>
+          </div>
+
+          <div class="review-output-head" id="reviewByteLabel">0 / 500 byte</div>
+          <textarea id="reviewOutputText" class="review-output" readonly spellcheck="false"></textarea>
+          <div class="review-meter"><div id="reviewByteMeter"></div></div>
+        </div>
+      </section>
+
+      <section id="tab-settings" class="panel">
+        <div class="setting-block" id="accBlock" hidden>
+          <label class="block-label" data-i18n="accountsLabel">Accounts</label>
+          <div id="accList" class="acc-list"></div>
+        </div>
+
+        <div class="setting-row">
+          <label data-i18n="lang">Language</label>
+          <select id="langSelect">
+            <option value="auto" data-i18n="langAuto">Auto (device)</option>
+            <option value="en">English</option>
+            <option value="tr">Türkçe</option>
+          </select>
+        </div>
+
+        <div class="setting-row">
+          <label data-i18n="interval">Check interval (minutes)</label>
+          <button id="intervalBtn" class="cycle-btn">5 min</button>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="status-block">
+          <div class="status-row"><span data-i18n="status">Status</span><b id="statusVal">-</b></div>
+          <div class="status-row"><span data-i18n="lastCheck">Last check</span><b id="lastPollVal">-</b></div>
+          <div class="status-row"><span data-i18n="trackedFriends">Tracked friends</span><b id="totalVal">-</b></div>
+          <div class="status-row"><span data-i18n="baselineTaken">Baseline taken</span><b id="baselineVal">-</b></div>
+        </div>
+
+        <div class="divider"></div>
+        <button id="exportBtn" class="text-btn" data-i18n="exportData">Export (JSON)</button>
+        <button id="restoreBtn" class="text-btn" data-i18n="restore">Restore backup</button>
+        <input id="restoreInput" type="file" accept="application/json" hidden />
+        <button id="resetBtn" class="text-btn danger" data-i18n="resetAll">Reset all data</button>
+
+        <p class="note" data-i18n="note"></p>
+      </section>
+    </main>
+
+    <div id="bulkBar" class="bulk-bar" hidden>
+      <button id="bulkUnfriend" class="bulk-unfriend"><span data-i18n="unfriendBtn">Unfriend</span> <span id="bulkCount">0</span></button>
+    </div>
+
+    <script src="i18n.js"></script>
+    <script src="popup.js"></script>
+    <script type="module" src="review-tab.js?v=1"></script>
+  </body>
+</html>

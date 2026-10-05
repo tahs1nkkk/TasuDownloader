@@ -1,6 +1,9 @@
+// Generated from shared/sites/reddit.js; run npm run build:shared. Do not edit.
+// Shared source; platform packages are generated from this file.
 (() => {
   if (window.__rgDownloaderRedditLoaded) return;
   window.__rgDownloaderRedditLoaded = true;
+  const life = globalThis.RG_LIFECYCLE?.create("reddit") || { listen:(t,...a)=>t.addEventListener(...a), unlisten:(t,...a)=>t.removeEventListener(...a), MutationObserver, setInterval:globalThis.setInterval.bind(globalThis), clearInterval:globalThis.clearInterval.bind(globalThis), raf:globalThis.requestAnimationFrame.bind(globalThis), cancelAnimationFrame:globalThis.cancelAnimationFrame.bind(globalThis) };
   console.info("%c[rg-reddit] content script yüklendi", "color:#ff4500;font-weight:bold", location.href);
 
   const { SETTINGS_KEY, DEFAULT_SETTINGS } = globalThis.RG_SETTINGS;
@@ -12,6 +15,9 @@
   const STATUS_ID = "rg-downloader-reddit-status";
   let settings = { ...DEFAULT_SETTINGS };
   let statusTimer = null;
+  let pointerX = -1, pointerY = -1, currentMedia = null, mediaCache = null, galleryCache = new WeakMap();
+  let overlayFrame = 0, observer = null;
+  const observedRoots = new WeakSet();
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -31,6 +37,7 @@
   }
 
   function setStatus(text, level = "idle") {
+    if (globalThis.RG_UI) { globalThis.RG_UI.toast(text, level); return; }
     const status = document.getElementById(STATUS_ID);
     if (!status) return;
     if (statusTimer) clearTimeout(statusTimer);
@@ -135,9 +142,9 @@
       }
       [${READY_ATTR}="1"]:hover > .${BUTTON_CLASS},
       [${READY_ATTR}="1"]:hover > .${MULTI_BUTTON_CLASS},
-      html[data-rg-downloader-button-visibility="always"] .${BUTTON_CLASS},
+      html[data-rg-downloader-button-visibility="always"] .${BUTTON_CLASS}:not([data-rg-hover-only="1"]),
       html[data-rg-downloader-button-visibility="always"] .${MULTI_BUTTON_CLASS},
-      .${BUTTON_CLASS}[data-rg-visible="1"],
+      .${BUTTON_CLASS}[data-rg-visible="1"]:not([data-rg-hover-only="1"]),
       .${MULTI_BUTTON_CLASS}[data-rg-visible="1"],
       .${BUTTON_CLASS}:focus-visible {
         opacity: 1;
@@ -183,6 +190,8 @@
       .${MULTI_BUTTON_CLASS}[data-rg-visible="1"] {
         display: grid;
       }
+      #${OVERLAY_ID}[data-rg-visible="0"],.${MULTI_BUTTON_CLASS}[data-rg-visible="0"],#${WEB_BUTTON_ID}[data-rg-visible="0"] { opacity:0;pointer-events:none!important; }
+      #${OVERLAY_ID}[data-rg-visible="1"],#${WEB_BUTTON_ID}[data-rg-visible="1"] { opacity:1;pointer-events:auto!important; }
     `;
     document.documentElement.appendChild(style);
 
@@ -268,13 +277,17 @@
     const out = [];
     const walk = (node) => {
       if (!node) return;
+      if (node instanceof ShadowRoot && observer && !observedRoots.has(node)) {
+        observer.observe(node, { childList: true, subtree: true, attributes: true, attributeFilter: ["src", "srcset", "style", "class", "aria-hidden"] });
+        observedRoots.add(node);
+      }
       if (node.querySelectorAll) {
         for (const el of node.querySelectorAll(selector)) out.push(el);
       }
       // Descend into any shadow roots found under this node
       const hosts = node.querySelectorAll ? node.querySelectorAll("*") : [];
       for (const host of hosts) {
-        if (host.shadowRoot) walk(host.shadowRoot);
+        if (host.shadowRoot && !host.id?.startsWith("rg-")) walk(host.shadowRoot);
       }
     };
     walk(root);
@@ -334,8 +347,8 @@
       "div"
     ];
     const candidates = [];
-    let node = img.parentElement;
-    for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
+    let node = img.parentElement || img.getRootNode()?.host;
+    for (let depth = 0; node && depth < 12; depth += 1, node = node.parentElement || node.getRootNode()?.host) {
       if (node === document.body || node === document.documentElement) continue;
       if (!selectors.some((selector) => node.matches?.(selector))) continue;
       const rect = node.getBoundingClientRect();
@@ -350,7 +363,7 @@
         candidates.push({ node, area });
       }
     }
-    return candidates.sort((a, b) => a.area - b.area)[0]?.node || img.parentElement;
+    return candidates.sort((a, b) => a.area - b.area)[0]?.node || img.parentElement || img.getRootNode()?.host;
   }
 
   function postRoot(img) {
@@ -408,7 +421,11 @@
   function imageUrlKey(url) {
     try {
       const parsed = new URL(url);
-      return decodeURIComponent(parsed.pathname.split("/").filter(Boolean).pop() || parsed.pathname).toLowerCase();
+      const name = decodeURIComponent(parsed.pathname.split("/").filter(Boolean).pop() || parsed.pathname).toLowerCase();
+      const base = name.replace(/\.(jpg|jpeg|png|webp|gif)$/i, "");
+      const asset = base.match(/-v0-([a-z0-9]+)$/i)?.[1] || base;
+      const host = /^(i|preview|external-preview)\.redd\.it$/.test(parsed.hostname) ? "reddit" : parsed.hostname;
+      return `${host}|${asset}`;
     } catch {
       return String(url || "").split("?")[0].toLowerCase();
     }
@@ -441,27 +458,20 @@
     );
   }
 
-  function allImageUrlsInRoot(root) {
-    const seen = new Set();
-    const urlSeen = new Set();
-    const urls = [];
-    // Add EVERY candidate for an image (best first, then fallbacks like the
-    // signed preview.redd.it) so the background can fall through if the i.redd.it
-    // original returns an HTML consent page (NSFW). `seen` dedupes by image,
-    // `urlSeen` dedupes exact URLs.
-    const addBest = (candidates) => {
+  function allImageItemsInRoot(root) {
+    const groups = new Map();
+    const addBest = (candidates, thumbnail = "") => {
       const best = bestImageUrl(candidates);
       const identity = imageUrlKey(best);
-      if (!best || !identity || seen.has(identity)) return;
-      seen.add(identity);
-      const ordered = [best, ...(candidates || []).filter((u) => u && u !== best)];
-      for (const u of ordered) {
-        if (!urlSeen.has(u)) { urlSeen.add(u); urls.push(u); }
-      }
+      if (!best || !identity) return;
+      const group = groups.get(identity) || { url: best, thumbnail: thumbnail || best, kind: "image", candidates: [] };
+      group.candidates = [...new Set([...group.candidates, best, ...candidates.filter(u => imageUrlKey(u) === identity)])];
+      group.url = bestImageUrl(group.candidates);
+      groups.set(identity, group);
     };
 
     for (const img of queryAllImages(root).filter(isPotentialGalleryImage)) {
-      addBest(collectImageUrls(imageRoot(img), img));
+      addBest(collectImageUrls(imageRoot(img), img), img.currentSrc || img.src);
     }
 
     for (const el of deepQueryAll("a[href], source[srcset], [style], [data-url], [data-media-url], [data-testid]", root)) {
@@ -474,10 +484,10 @@
           candidates.push(...redditOriginalFromUrl(attr.value), ...urlsFromSrcset(attr.value));
         }
       }
-      addBest(candidates);
+      for (const key of new Set(candidates.map(imageUrlKey))) addBest(candidates.filter(u => imageUrlKey(u) === key));
     }
 
-    return urls;
+    return [...groups.values()];
   }
 
   function updateButtonPositions(root) {
@@ -519,6 +529,33 @@
     }
   }
 
+  function mediaContainsPoint(media) {
+    if (!media?.isConnected) return false;
+    const r = media.getBoundingClientRect();
+    if (!(pointerX >= r.left && pointerX <= r.right && pointerY >= r.top && pointerY <= r.bottom)) return false;
+    for (let node = media; node && node !== document.documentElement; node = node.parentElement || node.getRootNode()?.host) {
+      const style = getComputedStyle(node), box = node.getBoundingClientRect();
+      if (style.display === "none" || style.visibility === "hidden" || node.getAttribute("aria-hidden") === "true") return false;
+      if (/hidden|clip|auto|scroll/.test(style.overflowX) && (pointerX < box.left || pointerX > box.right)) return false;
+      if (/hidden|clip|auto|scroll/.test(style.overflowY) && (pointerY < box.top || pointerY > box.bottom)) return false;
+    }
+    return true;
+  }
+
+  function activeMediaOnPage() {
+    if (currentMedia && mediaContainsPoint(currentMedia)) return currentMedia;
+    if (!mediaCache) mediaCache = [
+      ...deepQueryAll("iframe[src*='redgifs.com/']").filter(el => redgifsWatchFromEmbed(el.src)),
+      ...deepQueryAll("video").filter(el => deepClosest(el, "shreddit-post,[data-testid='post-container'],article,.thing")),
+      ...queryAllImages()
+    ];
+    const available = mediaCache.filter(el => el.isConnected && (el.tagName === "IMG" ? isCandidateImage(el) : visibleRect(el).visible));
+    const hovered = available.find(mediaContainsPoint);
+    if (hovered) return hovered;
+    if (settings.buttonVisibility !== "always" && !globalThis.RG_SETTINGS.isTouchDevice() && !document.fullscreenElement) return null;
+    return available.sort((a, b) => onScreenArea(b.getBoundingClientRect()) - onScreenArea(a.getBoundingClientRect()))[0] || null;
+  }
+
   function updateOverlayButtons() {
     const single = document.getElementById(OVERLAY_ID);
     const multi = document.querySelector(`.${MULTI_BUTTON_CLASS}`);
@@ -526,11 +563,9 @@
     const web = document.getElementById(WEB_BUTTON_ID);
 
     const hideButtons = () => {
-      single.style.display = "none";
-      multi.style.display = "none";
-      if (web) web.style.display = "none";
-      delete single.dataset.rgVisible;
-      delete multi.dataset.rgVisible;
+      for (const button of [single, multi, web].filter(Boolean)) {
+        button.dataset.rgVisible = "0"; button.tabIndex = -1; button.setAttribute("aria-hidden", "true");
+      }
     };
 
     if (!settings.redditImages) {
@@ -538,14 +573,18 @@
       return;
     }
 
-    const img = activeImageOnPage();
+    if (globalThis.RG_UI?.busy || document.getElementById("rg-web-menu") || document.getElementById("rg-folder-menu") || single.disabled || multi.disabled) return;
+    if ([single, multi, web].some(button => button?.dataset.rgVisible === "1" && mediaContainsPoint(button))) return;
+    const img = activeMediaOnPage();
     if (!img) {
       hideButtons();
       return;
     }
 
     const rect = img.getBoundingClientRect();
-    const targetRoot = imageRoot(img);
+    let targetRoot = imageRoot(img);
+    // Keep singleton controls in light DOM so document lookups remain valid.
+    while (targetRoot?.getRootNode()?.host) targetRoot = targetRoot.getRootNode().host;
     if (!targetRoot) {
       hideButtons();
       return;
@@ -573,32 +612,40 @@
     const maxTop = Math.max(8, rootRect.height - size - 8);
     const left = clamp(rect.left - rootRect.left + 10, 8, maxLeft);
     const top = clamp(rect.top - rootRect.top + 10, 8, maxTop);
-    const post = postRoot(img);
+    const post = deepClosest(img, "shreddit-post,[data-testid='post-container'],article,.thing") || postRoot(img);
+    currentMedia = img;
+    const redgifsEmbed = img.tagName === "IFRAME" && !!redgifsWatchFromEmbed(img.src);
 
     single.style.left = `${left}px`;
     single.style.top = `${top}px`;
     single.style.display = "grid";
-    delete single.dataset.rgVisible;
+    single.dataset.rgVisible = "1"; single.tabIndex = 0; single.setAttribute("aria-hidden", "false");
     single.__rgDownloaderImage = img;
     single.__rgDownloaderRoot = imageRoot(img);
+    single.title = img.tagName === "IMG" ? "Görseli indir" : "Videoyu indir";
+    if (redgifsEmbed) single.dataset.rgHoverOnly = "1";
+    else delete single.dataset.rgHoverOnly;
 
     // Web listesi butonu tam tek görsel butonunun altında (özellik D).
     if (web) {
       web.style.left = `${left}px`;
       web.style.top = `${clamp(top + size + gap, 8, maxTop)}px`;
       web.style.display = "grid";
+      web.dataset.rgVisible = "1"; web.tabIndex = 0; web.setAttribute("aria-hidden", "false");
       web.__rgDownloaderImage = img;
     }
 
     multi.style.left = `${clamp(left + size + gap, 8, maxLeft)}px`;
     multi.style.top = `${top}px`;
     multi.__rgDownloaderRoot = post || imageRoot(img);
-    if (uniqueImageCount(multi.__rgDownloaderRoot) > 1) {
+    let count = galleryCache.get(post);
+    if (count == null) { count = img.tagName === "IMG" ? uniqueImageCount(multi.__rgDownloaderRoot) : 0; galleryCache.set(post, count); }
+    if (!redgifsEmbed && count > 1) {
       multi.style.display = "grid";
-      delete multi.dataset.rgVisible;
+      multi.dataset.rgVisible = "1"; multi.tabIndex = 0; multi.setAttribute("aria-hidden", "false");
     } else {
-      multi.style.display = "none";
-      delete multi.dataset.rgVisible;
+      if (redgifsEmbed) multi.style.display = "none";
+      multi.dataset.rgVisible = "0"; multi.tabIndex = -1; multi.setAttribute("aria-hidden", "true");
     }
   }
 
@@ -626,20 +673,7 @@
   }
 
   function uniqueImageCount(root) {
-    if (!root) return 0;
-    const identities = new Set(
-      queryAllImages(root)
-        .filter(isPotentialGalleryImage)
-        .map(imageIdentity)
-        .filter(Boolean)
-    );
-    if (identities.size > 1) return identities.size;
-
-    const hasGalleryUi = deepQueryAll(
-      '[aria-roledescription="carousel"], button[aria-label="Next"], button[aria-label="Previous"], button[aria-label="Go back"]',
-      root
-    ).length > 0;
-    return hasGalleryUi ? 2 : identities.size;
+    return root ? allImageItemsInRoot(root).length : 0;
   }
 
   function decodeMaybe(value) {
@@ -678,6 +712,7 @@
           if (/^(preview|external-preview)\.redd\.it$/i.test(parsed.hostname)) {
             const original = new URL(parsed.toString());
             original.hostname = "i.redd.it";
+            original.pathname = original.pathname.replace(/[^/]*-v0-([a-z0-9]+)(\.[a-z]+)$/i, "$1$2");
             original.search = "";
             urls.push(original.toString());
           }
@@ -757,7 +792,11 @@
       const clean = normalizeUrl(value);
       if (clean && /\.(jpg|jpeg|png|webp|gif)(?:$|[?#])/i.test(clean)) resolved.push(clean);
     }
-    return [...new Set(resolved)];
+    // Scope scans may contain siblings: a single-media request must never fall
+    // through to an entirely different image in the same post.
+    const own = redditOriginalFromUrl(img.currentSrc || img.src)[0];
+    const key = own && imageUrlKey(own);
+    return [...new Set(resolved)].filter(url => !key || imageUrlKey(url) === key);
   }
 
   function sendDirectDownload(urls, options = {}) {
@@ -818,11 +857,7 @@
     try {
       if (!settings.redditImages) throw new Error("Images disabled.");
       const multiRoot = button.__rgDownloaderRoot || root;
-      const urls = allImageUrlsInRoot(multiRoot);
-      if (!urls.length) throw new Error("Original image not found.");
-      const folder = window.rgChooseFolder ? await window.rgChooseFolder() : "";
-      if (folder === null) return;
-      await sendDirectDownload(urls, { downloadAll: true, folderName: folder, source: postSource(multiRoot) });
+      await downloadGallery(button, multiRoot);
     } catch (error) {
       setStatus(toErrorCode(error), "error");
     } finally {
@@ -844,6 +879,14 @@
       if (!settings.redditImages) throw new Error("Images disabled.");
       const img = button.__rgDownloaderImage || activeImageOnPage();
       if (!img) throw new Error("Original image not found.");
+      if (img.tagName === "IFRAME" || img.tagName === "VIDEO") {
+        const watch = img.tagName === "IFRAME" ? redgifsWatchFromEmbed(img.src) : "";
+        const urls = img.tagName === "VIDEO" ? directVideoUrls(img) : [];
+        const folder = window.rgChooseFolder ? await window.rgChooseFolder() : "";
+        if (folder === null) return;
+        await sendDirectDownload(urls, { fallbackSourceUrl: watch || postPermalink(img), site: watch ? "RedGifs" : "Reddit", folderName: folder, source: postSource(img) });
+        return;
+      }
       const urls = collectImageUrls(imageRoot(img), img);
       if (!urls.length) throw new Error("Original image not found.");
       const folder = window.rgChooseFolder ? await window.rgChooseFolder() : "";
@@ -869,11 +912,7 @@
     try {
       if (!settings.redditImages) throw new Error("Images disabled.");
       const root = button.__rgDownloaderRoot || postRoot(activeImageOnPage());
-      const urls = allImageUrlsInRoot(root);
-      if (!urls.length) throw new Error("Original image not found.");
-      const folder = window.rgChooseFolder ? await window.rgChooseFolder() : "";
-      if (folder === null) return;
-      await sendDirectDownload(urls, { downloadAll: true, folderName: folder, source: postSource(root) });
+      await downloadGallery(button, root);
     } catch (error) {
       setStatus(toErrorCode(error), "error");
     } finally {
@@ -885,7 +924,8 @@
   function installButtons() {
     installStyle();
     document.documentElement.dataset.rgDownloaderButtonVisibility = settings.buttonVisibility === "always" ? "always" : "hover";
-    document.documentElement.style.setProperty("--rg-downloader-reddit-button-size", `${clamp(Number(settings.buttonSize) || 44, 28, 72)}px`);
+    const buttonSize = `${clamp(Number(settings.buttonSize) || 44, 28, 72)}px`;
+    if (document.documentElement.style.getPropertyValue("--rg-downloader-reddit-button-size") !== buttonSize) document.documentElement.style.setProperty("--rg-downloader-reddit-button-size", buttonSize);
 
     if (!settings.redditImages) {
       for (const button of document.querySelectorAll(`.${BUTTON_CLASS}, .${MULTI_BUTTON_CLASS}`)) {
@@ -894,6 +934,25 @@
       return;
     }
     updateOverlayButtons();
+  }
+
+  async function downloadGallery(button, root) {
+    const items = allImageItemsInRoot(root);
+    if (!items.length) throw new Error("Original image not found.");
+    const selected = globalThis.RG_UI ? await globalThis.RG_UI.chooseMedia(button, items) : items;
+    if (!selected) return;
+    const folder = window.rgChooseFolder ? await window.rgChooseFolder() : "";
+    if (folder === null) return;
+    const source = postSource(root);
+    let failed = 0;
+    for (const item of selected) {
+      try {
+        // One logical item per request. Keep original/preview fallback candidates
+        // together, so the browser downloads ONE successful source, not both.
+        await sendDirectDownload(item.candidates, { imageMode: true, folderName: folder, source });
+      } catch { failed++; }
+    }
+    setStatus(failed ? `${selected.length - failed}/${selected.length} indirme başlatıldı; ${failed} öğe indirilemedi.` : `${selected.length} indirme başlatıldı.`, failed ? "error" : "idle");
   }
 
   function updateAllButtonPositions() {
@@ -918,6 +977,7 @@
   });
 
   chrome.runtime.onMessage.addListener((message) => {
+    if (globalThis.RG_UI) return;
     if (message.type !== "RG_HELPER_STATUS") return;
     if (message.level === "error") setStatus(toErrorCode(message.text), "error");
   });
@@ -1047,6 +1107,14 @@
         cursor: pointer; transition: background .1s;
       }
       #${SEARCH_PANEL_ID} .rg-sp-btn:hover { background: #1d4ed8; }
+      #${SEARCH_TRIGGER_ID} { background:#fffffff2;color:#263c56;border:1px solid #fff;border-radius:14px;box-shadow:0 4px 18px #18355726; }
+      #${SEARCH_TRIGGER_ID}:hover { background:#fffffff2;transform:scale(1.04); }
+      #${SEARCH_PANEL_ID} { display:block;visibility:hidden;opacity:0;pointer-events:none;transform:translateY(8px);transition:opacity 160ms ease,transform 160ms ease,visibility 160ms;background:#f1f5fc;color:#263c56;border:1px solid #fff;border-radius:20px;box-shadow:0 8px 32px #17375929;max-width:calc(100vw - 40px); }
+      #${SEARCH_PANEL_ID}.rg-sp-open { visibility:visible;opacity:1;pointer-events:auto;transform:none; }
+      #${SEARCH_PANEL_ID} .rg-sp-title,#${SEARCH_PANEL_ID} .rg-sp-lbl,#${SEARCH_PANEL_ID} .rg-sp-x,#${SEARCH_PANEL_ID} .rg-sp-x:hover { color:#263c56; }
+      #${SEARCH_PANEL_ID} input[type="text"] { background:#fff;border:1px solid #b5c7df;color:#263c56;border-radius:10px;padding:9px; }
+      #${SEARCH_PANEL_ID} .rg-sp-btn,#${SEARCH_PANEL_ID} .rg-sp-btn:hover { background:#fff;border:1px solid #fff;color:#263c56;border-radius:12px;padding:10px; }
+      @media(prefers-reduced-motion:reduce){#${SEARCH_TRIGGER_ID},#${SEARCH_PANEL_ID}{transition:none!important;}}
     `;
     document.documentElement.appendChild(s);
   }
@@ -1122,13 +1190,14 @@
 
     function doSearch() {
       saveFromPanel();
-      if (!spSanitize(spUsername)) { elUser().focus(); return; }
+      if (!spSanitize(spUsername)) { setStatus("Bir kullanıcı adı gir.", "warning"); elUser().focus(); return; }
       let active = Object.entries(spProviders).filter(([, v]) => v).map(([k]) => k);
+      if (!active.length) { setStatus("En az bir arama kaynağı seç.", "warning"); return; }
       // In the app every OPEN_TAB navigates the one and only WebView, so firing
       // several at once makes them stomp each other — the profile search "did
       // nothing" because the last provider (or a web-search page) replaced the
       // one the user wanted. There, open a single tab, preferring Reddit itself.
-      const nativeApp = typeof window.rgChooseFolder === "function" || globalThis.__rgNativeBridgeLoaded === true;
+      const nativeApp = globalThis.__rgNativeBridgeLoaded === true;
       if (nativeApp && active.length > 1) {
         active = [active.includes("reddit") ? "reddit" : active.includes("old") ? "old" : active[0]];
       }
@@ -1137,9 +1206,10 @@
         if (url) chrome.runtime.sendMessage({ type: "OPEN_TAB", url });
       }
       // Reset text only after a successful search
+      closePanel();
       spUsername = "";
       spSubreddit = "";
-      closePanel();
+      setStatus("Arama açılıyor…", "idle");
     }
 
     trigger.addEventListener("click", () => { if (spOpen) closePanel(); else openPanel(); });
@@ -1162,7 +1232,7 @@
     });
 
     // Click outside → close (save text)
-    document.addEventListener("click", (e) => {
+    life.listen(document, "click", (e) => {
       if (!spOpen) return;
       if (panel.contains(e.target) || trigger.contains(e.target)) return;
       closePanel();
@@ -1180,7 +1250,7 @@
   // permalink + title for the list (KÖK-LİSTE).
 
   function postContainer(el) {
-    return deepClosest(el, "shreddit-post, [data-testid='post-container'], article") || imageRoot(el);
+    return deepClosest(el, "shreddit-post, [data-testid='post-container'], article, .thing") || (el ? imageRoot(el) : null);
   }
 
   function postPermalink(el) {
@@ -1374,23 +1444,24 @@
 
   loadSettings();
   installSearchPanel();
-  let _installPending = false;
-  const observer = new MutationObserver(() => {
-    if (_installPending) return;
-    _installPending = true;
-    window.requestAnimationFrame(() => {
-      _installPending = false;
-      installButtons();
-    });
+  function queueOverlayUpdate(dirty = false) {
+    if (dirty) { mediaCache = null; currentMedia = null; galleryCache = new WeakMap(); }
+    if (overlayFrame || document.hidden) return;
+    overlayFrame = life.raf(() => { overlayFrame = 0; installButtons(); });
+  }
+  const ownNode = node => node.nodeType === 1 ? (node.id?.startsWith("rg-") || /(?:^|\s)rg-/.test(node.className || "") || node.closest?.('[id^="rg-"]')) : node.parentElement?.closest('[id^="rg-"]');
+  observer = new life.MutationObserver(records => {
+    if (records.some(record => !ownNode(record.target) && (record.type !== "childList" || [...record.addedNodes, ...record.removedNodes].some(node => !ownNode(node))))) queueOverlayUpdate(true);
   });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
-  window.addEventListener("scroll", () => window.requestAnimationFrame(() => {
-    installButtons();
-    updateAllButtonPositions();
-  }), { passive: true });
-  window.addEventListener("resize", () => window.requestAnimationFrame(updateAllButtonPositions));
-  setTimeout(installButtons, 1200);
-  setInterval(() => {
-    if (!document.hidden) updateAllButtonPositions();
-  }, 650);
+  observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["src", "srcset", "style", "class", "aria-hidden"] });
+  const onPointer = event => { pointerX = event.clientX; pointerY = event.clientY; queueOverlayUpdate(); };
+  life.listen(document, "pointermove", onPointer, { passive: true, capture: true });
+  life.listen(document, "pointerover", onPointer, { passive: true, capture: true });
+  life.listen(document, "pointerout", event => { if (!event.relatedTarget) { pointerX = pointerY = -1; queueOverlayUpdate(); } }, { passive: true });
+  life.listen(window, "scroll", () => queueOverlayUpdate(), { passive: true, capture: true });
+  life.listen(window, "resize", () => queueOverlayUpdate(true));
+  life.listen(document, "transitionend", event => { if (!ownNode(event.target)) queueOverlayUpdate(true); }, { passive: true, capture: true });
+  life.listen(document, "visibilitychange", () => { if (!document.hidden) queueOverlayUpdate(true); });
+  queueOverlayUpdate(true);
+  life.onResume = () => queueOverlayUpdate(true);
 })();

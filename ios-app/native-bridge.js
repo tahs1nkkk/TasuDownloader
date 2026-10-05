@@ -47,7 +47,10 @@
     getManifest: () => ({ version: VERSION }),
     onMessage: { addListener() {}, removeListener() {} },
     sendMessage(message, callback) {
-      const pending = post({ kind: "message", message: message || {} });
+      const checked = message?.type === "DIRECT_DOWNLOAD" ? globalThis.RG_DOWNLOAD.validate(message) : null;
+      const pending = checked && !checked.ok
+        ? Promise.resolve(checked)
+        : post({ kind: "message", message: checked?.message || message || {} });
       if (typeof callback !== "function") return pending;
       pending
         .then((result) => {

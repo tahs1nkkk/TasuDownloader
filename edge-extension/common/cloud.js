@@ -182,6 +182,47 @@
     return response.json().catch(() => ({ ok: true }));
   }
 
+  // Apply edits to the newest snapshot, and preserve Swift's timestamp schema.
+  // This reduces stale writes; the API still has no cross-client atomic CAS.
+  let listQueue = Promise.resolve();
+  function editLists(settings, apply) {
+    const pending = listQueue.then(async () => {
+      const snap = (await getLists(settings)) || { lists: [], tombstones: [] };
+      if (!Array.isArray(snap.lists) || !Array.isArray(snap.tombstones)) throw new Error("Liste verisi geçersiz; işlem yapılmadı.");
+      const next = structuredClone(snap);
+      const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+      if (!apply(next, now)) return snap;
+      // Older Edge versions wrote bare IDs, which Swift cannot decode.
+      next.tombstones = next.tombstones.map((item) => typeof item === "string" ? { id: item, deletedAt: now } : item);
+      await putLists(settings, next);
+      return next;
+    });
+    listQueue = pending.catch(() => {});
+    return pending;
+  }
+
+  function removeListItem(settings, listId, itemId, url) {
+    return editLists(settings, (snap, now) => {
+      const list = snap.lists.find((item) => item.id === listId);
+      if (!list || !Array.isArray(list.items)) return false;
+      const before = list.items.length;
+      list.items = list.items.filter((item) => itemId ? item.id !== itemId : item.url !== url);
+      if (before === list.items.length) return false;
+      list.updatedAt = now;
+      return true;
+    });
+  }
+
+  function removeList(settings, listId) {
+    return editLists(settings, (snap, now) => {
+      const index = snap.lists.findIndex((item) => item.id === listId);
+      if (index < 0) return false;
+      snap.lists.splice(index, 1);
+      snap.tombstones.push({ id: listId, deletedAt: now });
+      return true;
+    });
+  }
+
   // --- Bağlantı yoklaması ---------------------------------------------------
 
   /** /api/config: 200 ise jetonla bağlı. Jeton yoksa arka plan isteği zaten
@@ -217,6 +258,8 @@
     mediaURL,
     getLists,
     putLists,
+    removeList,
+    removeListItem,
     checkConnection
   });
 });

@@ -62,7 +62,7 @@ enum DownloadDestination: String, CaseIterable, Identifiable {
 }
 
 /// App-side settings store. The payload the in-app browser reads mirrors the
-/// extension's `tasuDownloaderSettings` JSON (see edge-extension/common/settings.js),
+/// extension's `tasuDownloaderSettings` JSON (see shared/core/settings.js),
 /// so the injected handlers see the exact shape they always have.
 ///
 /// What is *not* here is deliberate. This is a downloader, so there is no

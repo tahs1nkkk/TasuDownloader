@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Roblox Dada Review Generator</title>
+    <link rel="stylesheet" href="popup.css" />
+  <link rel="stylesheet" href="../theme.css"><link rel="stylesheet" href="theme.css"></head>
+  <body>
+    <main class="app">
+      <header class="topbar" hidden>
+        <button id="langBtn" class="langIconButton" type="button" aria-label="Language">🌐</button>
+      </header>
+
+      <section class="panel controlPanel">
+        <div class="cycleGrid">
+          <button id="toneBtn" class="cycleButton toneButton" type="button"></button>
+          <button id="styleBtn" class="cycleButton styleButton" type="button"></button>
+          <button id="genderBtn" class="cycleButton genderButton" type="button"></button>
+        </div>
+
+        <div class="switchGrid">
+          <label class="switchRow">
+            <input id="asciiToggle" type="checkbox" checked />
+            <span class="switchTrack"></span>
+            <span data-i18n="turkishChars">Turkish chars</span>
+          </label>
+          <label class="switchRow">
+            <input id="emojiToggle" type="checkbox" />
+            <span class="switchTrack"></span>
+            <span data-i18n="extraEmoji">Extra emoji</span>
+          </label>
+          <label class="switchRow">
+            <input id="noteToggle" type="checkbox" />
+            <span class="switchTrack"></span>
+            <span data-i18n="note">Note</span>
+          </label>
+          <label class="switchRow">
+            <input id="badgeToggle" type="checkbox" />
+            <span class="switchTrack"></span>
+            <span data-i18n="badge">Badge</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="panel ratingsPanel">
+        <div class="sectionHead">
+          <span id="avgLabel">Score: 6/10</span>
+        </div>
+        <div id="ratingRows" class="ratingRows"></div>
+      </section>
+
+      <section class="actions">
+        <button id="generateBtn" class="primary" type="button" data-i18n="generate">Generate</button>
+        <button id="decalBtn" type="button" data-i18n="decal">Decal ID</button>
+        <button id="copyBtn" type="button" data-i18n="copy">Copy</button>
+      </section>
+
+      <section class="panel outputPanel">
+        <div class="sectionHead">
+          <span id="byteLabel">0 / 500 byte</span>
+        </div>
+        <textarea id="outputText" readonly spellcheck="false"></textarea>
+        <div class="meter" aria-hidden="true">
+          <div id="byteMeter"></div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

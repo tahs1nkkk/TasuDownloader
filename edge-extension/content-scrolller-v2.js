@@ -1,6 +1,9 @@
+// Generated from shared/sites/scrolller.js; run npm run build:shared. Do not edit.
+// Shared source; platform packages are generated from this file.
 (() => {
   if (window.top !== window || window.__rgScrolllerV2Loaded) return;
   window.__rgScrolllerV2Loaded = true;
+  const life = globalThis.RG_LIFECYCLE?.create("scrolller") || { listen:(t,...a)=>t.addEventListener(...a), unlisten:(t,...a)=>t.removeEventListener(...a), MutationObserver, setInterval:globalThis.setInterval.bind(globalThis), clearInterval:globalThis.clearInterval.bind(globalThis), raf:globalThis.requestAnimationFrame.bind(globalThis), cancelAnimationFrame:globalThis.cancelAnimationFrame.bind(globalThis) };
 
   const HOST_ID = "rg-scrolller-v2-host";
   const BUTTON_ID = "rg-scrolller-v2-button";
@@ -109,9 +112,9 @@
     let target = null;
 
     const finish = () => {
-      document.removeEventListener("pointermove", onMove, true);
-      document.removeEventListener("click", onClick, true);
-      document.removeEventListener("keydown", onKey, true);
+      life.unlisten(document, "pointermove", onMove, true);
+      life.unlisten(document, "click", onClick, true);
+      life.unlisten(document, "keydown", onKey, true);
       host.remove();
     };
     const onMove = (event) => {
@@ -144,9 +147,9 @@
     const onKey = (event) => {
       if (event.key === "Escape") finish();
     };
-    document.addEventListener("pointermove", onMove, true);
-    document.addEventListener("click", onClick, true);
-    document.addEventListener("keydown", onKey, true);
+    life.listen(document, "pointermove", onMove, true);
+    life.listen(document, "click", onClick, true);
+    life.listen(document, "keydown", onKey, true);
   }
 
   function visibleArea(element) {
@@ -652,16 +655,19 @@
     `;
 
     const button = shadow.getElementById(BUTTON_ID);
+    globalThis.RG_UI?.installTheme(shadow);
     const status = shadow.getElementById("status");
     button.addEventListener("click", async () => {
       if (button.disabled) return;
       button.disabled = true;
       status.textContent = "";
+      globalThis.RG_UI?.toast("İndirme hazırlanıyor…", "info");
       try {
         await downloadCurrent({ chooseFolder: true });
       } catch (error) {
         console.error("[rg-scrolller-v2] hata", error);
-        status.textContent = String(error?.message || error || "E_FAILED");
+        if (globalThis.RG_UI) globalThis.RG_UI.toast(String(error?.message || error || "E_FAILED"), "error");
+        else status.textContent = String(error?.message || error || "E_FAILED");
       } finally {
         button.disabled = false;
       }
@@ -695,20 +701,21 @@
     }
     install();
   }
+  life.onResume = ensureInstalled;
 
   // Scrolller replaces large DOM sections during hydration and route changes.
   // Recreate the isolated control whenever the site removes it. The button is
   // intentionally fixed and always visible; it no longer depends on hover.
-  const observer = new MutationObserver(() => {
+  const observer = new life.MutationObserver(() => {
     if (installScheduled) return;
     installScheduled = true;
-    requestAnimationFrame(() => {
+    life.raf(() => {
       installScheduled = false;
       ensureInstalled();
     });
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
-  setInterval(() => {
+  life.setInterval(() => {
     applyCleanupSelectors();
     ensureInstalled();
   }, 800);

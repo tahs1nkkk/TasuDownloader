@@ -30,8 +30,11 @@ function setView(name, direction) {
   void active.offsetWidth;
   active.classList.add(direction === "left" ? "from-left" : "from-right");
 
-  $("#edge-left").hidden = name === "lists";
-  $("#edge-right").hidden = name === "media";
+  // İki kenar da hep görünür: soldan listelere, sağdan arşive (medya) geçilir.
+  // Bulunduğun bölümün oku gizlenmiyor, "current" ile mavi vurgulanıyor —
+  // böylece iki yönlü gezinme her an ekranın iki kenarında el altında.
+  $("#edge-left").classList.toggle("current", name === "lists");
+  $("#edge-right").classList.toggle("current", name === "media");
   $("#media-stats").hidden = name !== "media";
   if (name === "media") media.renderGrid(true);
   $(".stage").scrollTop = 0;
@@ -94,9 +97,14 @@ async function editDrive(drive) {
   const choice = await dialog({
     title: "Arşiv",
     build: (box) => {
-      const input = el("input", { type: "text", value: drive.name, maxlength: 60 });
-      input.addEventListener("input", () => { draft.name = input.value; });
-      box.append(el("label", { class: "f" }, el("span", {}, "Ad"), input));
+      // Ana arşiv ("main") tek özel arşiv: site kavramı yalnız onda var ve
+      // silinemez. Kimliği sabit dursun diye adı da salt-okunur; renk ve kapak
+      // görseli düzenlenebilir kalır.
+      const locked = drive.id === "main";
+      const input = el("input", { type: "text", value: drive.name, maxlength: 60, readonly: locked });
+      if (!locked) input.addEventListener("input", () => { draft.name = input.value; });
+      box.append(el("label", { class: "f" },
+        el("span", {}, locked ? "Ad (Tasu arşivi sabit)" : "Ad"), input));
 
       const colors = el("div", { class: "swatches" });
       for (const color of PALETTE) {
@@ -354,8 +362,10 @@ function wireShell() {
     half.addEventListener("click", () => enterApp(half.dataset.go));
   }
 
-  $("#edge-left").addEventListener("click", () => setView("lists", "left"));
-  $("#edge-right").addEventListener("click", () => setView("media", "right"));
+  // Bulunduğun bölümün kenarına basmak bir şey yapmaz (o yalnız "buradasın"
+  // göstergesi); yalnız karşı bölüme geçiş anlam taşıyor.
+  $("#edge-left").addEventListener("click", () => { if (S.view !== "lists") setView("lists", "left"); });
+  $("#edge-right").addEventListener("click", () => { if (S.view !== "media") setView("media", "right"); });
 
   $("#btn-drives").addEventListener("click", openDrawer);
   $(".brand").addEventListener("click", backToChooser);

@@ -1,15 +1,25 @@
 {
   "manifest_version": 3,
-  "name": "RedGifs Downloader",
-  "version": "0.25.0",
-  "description": "Downloads accessible RedGifs videos from Redgifs and supported embeds.",
+  "name": "Tasu Apps",
+  "version": "0.31.7",
+  "description": "Tasu Apps: Downloader, Roblox Friend Tracker, Dada Review and local music tools.",
+  "optional_permissions": [
+    "notifications",
+    "nativeMessaging"
+  ],
+  "optional_host_permissions": [
+    "https://*.roblox.com/*"
+  ],
   "permissions": [
+    "activeTab",
     "tabs",
     "downloads",
     "scripting",
     "clipboardRead",
     "clipboardWrite",
-    "storage"
+    "storage",
+    "declarativeNetRequestWithHostAccess",
+    "alarms"
   ],
   "host_permissions": [
     "https://redgifs.com/*",
@@ -46,7 +56,13 @@
         "https://*.redgifs.com/*"
       ],
       "js": [
+        "common/sites.js",
         "common/settings.js",
+        "common/media-rules.js",
+        "common/download-contract.js",
+        "common/version.js",
+        "common/lifecycle.js",
+        "common/ui.js",
         "common/weblink.js",
         "content-folders.js",
         "content-redgifs.js"
@@ -56,24 +72,19 @@
     },
     {
       "matches": [
-        "https://ripsnip.com/*",
-        "https://www.ripsnip.com/*"
-      ],
-      "js": [
-        "common/settings.js",
-        "content-ripsnip.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
         "https://reddit.com/*",
         "https://www.reddit.com/*",
         "https://new.reddit.com/*",
         "https://old.reddit.com/*"
       ],
       "js": [
+        "common/sites.js",
         "common/settings.js",
+        "common/media-rules.js",
+        "common/download-contract.js",
+        "common/version.js",
+        "common/lifecycle.js",
+        "common/ui.js",
         "common/weblink.js",
         "content-folders.js",
         "content-reddit.js"
@@ -87,7 +98,13 @@
         "https://*.scrolller.com/*"
       ],
       "js": [
+        "common/sites.js",
         "common/settings.js",
+        "common/media-rules.js",
+        "common/download-contract.js",
+        "common/version.js",
+        "common/lifecycle.js",
+        "common/ui.js",
         "common/weblink.js",
         "content-folders.js",
         "content-scrolller-v2.js"
@@ -100,7 +117,13 @@
         "https://www.coomer.st/*"
       ],
       "js": [
+        "common/sites.js",
         "common/settings.js",
+        "common/media-rules.js",
+        "common/download-contract.js",
+        "common/version.js",
+        "common/lifecycle.js",
+        "common/ui.js",
         "common/weblink.js",
         "content-coomer.js"
       ],
@@ -123,7 +146,13 @@
         "https://www.onlyfans.com/*"
       ],
       "js": [
+        "common/sites.js",
         "common/settings.js",
+        "common/media-rules.js",
+        "common/download-contract.js",
+        "common/version.js",
+        "common/lifecycle.js",
+        "common/ui.js",
         "common/weblink.js",
         "content-onlyfans.js"
       ],
@@ -135,17 +164,40 @@
         "https://instagram.com/*"
       ],
       "js": [
+        "common/sites.js",
         "common/settings.js",
+        "common/media-rules.js",
+        "common/download-contract.js",
+        "common/version.js",
+        "common/lifecycle.js",
+        "common/ui.js",
         "common/weblink.js",
         "content-folders.js",
         "content-instagram.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://ripsnip.com/*",
+        "https://www.ripsnip.com/*"
+      ],
+      "js": [
+        "common/sites.js",
+        "common/settings.js",
+        "common/media-rules.js",
+        "common/download-contract.js",
+        "common/version.js",
+        "common/lifecycle.js",
+        "common/ui.js",
+        "content-ripsnip.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "action": {
-    "default_title": "RedGifs Downloader",
-    "default_popup": "popup.html",
+    "default_title": "Tasu Apps",
+    "default_popup": "hub.html",
     "default_icon": {
       "16": "icon-16.png",
       "32": "icon-32.png",

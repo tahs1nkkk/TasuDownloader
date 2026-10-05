@@ -14,6 +14,9 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
+    configFiles:
+      Debug: Versions.xcconfig
+      Release: Versions.xcconfig
     sources:
       - path: Sources
       # Resources/generated is produced by scripts/build-ios-app-js.js before
@@ -24,8 +27,8 @@ targets:
       path: Generated/Info.plist
       properties:
         CFBundleDisplayName: TasuDownloader
-        CFBundleShortVersionString: "1.0.0"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
         NSPhotoLibraryAddUsageDescription: İndirilen medya Fotoğraflar kitaplığına kaydedilir.
         NSPhotoLibraryUsageDescription: Galeri sekmesi, bu uygulamayla indirilen öğeleri Fotoğraflar kitaplığından gösterir.

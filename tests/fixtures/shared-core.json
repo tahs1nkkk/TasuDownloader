@@ -1,0 +1,208 @@
+[
+  {
+    "name": "image before thumbnail",
+    "operation": "scrolller",
+    "input": "<img src=\"https://media.example/thumb.webp\"><meta property=\"og:image\" content=\"https://media.example/original.jpg\">",
+    "expected": [
+      "https://media.example/original.jpg",
+      "https://media.example/thumb.webp"
+    ]
+  },
+  {
+    "name": "video before poster",
+    "operation": "scrolller",
+    "input": "<meta property=\"og:image\" content=\"https://media.example/poster.jpg\"><meta property=\"og:video\" content=\"https://photon.scrolller.com/movie.mp4\">",
+    "expected": [
+      "https://photon.scrolller.com/movie.mp4",
+      "https://media.example/poster.jpg"
+    ]
+  },
+  {
+    "name": "GIF stays GIF",
+    "operation": "scrolller",
+    "input": "<meta property=\"og:image\" content=\"https://media.example/clip.gif\"><video src=\"https://photon.scrolller.com/clip.mp4\"></video>",
+    "expected": [
+      "https://media.example/clip.gif",
+      "https://photon.scrolller.com/clip.mp4"
+    ]
+  },
+  {
+    "name": "escaped duplicate",
+    "operation": "scrolller",
+    "input": "<meta property=\"og:video\" content=\"https:\\u002f\\u002fphoton.scrolller.com\\u002fmovie.mp4?a=1&amp;b=2\"><video src=\"https://photon.scrolller.com/movie.mp4?a=1&amp;b=2\"></video>",
+    "expected": [
+      "https://photon.scrolller.com/movie.mp4?a=1&b=2"
+    ]
+  },
+  {
+    "name": "empty source",
+    "operation": "scrolller",
+    "input": "",
+    "expected": []
+  },
+  {
+    "name": "variant sample-large_1920x1080-1080p",
+    "operation": "stripVariant",
+    "input": "sample-large_1920x1080-1080p",
+    "expected": "sample"
+  },
+  {
+    "name": "variant sample-HD",
+    "operation": "stripVariant",
+    "input": "sample-HD",
+    "expected": "sample"
+  },
+  {
+    "name": "variant sample_medium",
+    "operation": "stripVariant",
+    "input": "sample_medium",
+    "expected": "sample"
+  },
+  {
+    "name": "variant sample-120fps",
+    "operation": "stripVariant",
+    "input": "sample-120fps",
+    "expected": "sample-120fps"
+  },
+  {
+    "name": "variant hd",
+    "operation": "stripVariant",
+    "input": "hd",
+    "expected": "hd"
+  },
+  {
+    "name": "variant -hd",
+    "operation": "stripVariant",
+    "input": "-hd",
+    "expected": "-hd"
+  },
+  {
+    "name": "variant sample_1080p-large",
+    "operation": "stripVariant",
+    "input": "sample_1080p-large",
+    "expected": "sample"
+  },
+  {
+    "name": "site subdomain",
+    "operation": "siteForHost",
+    "input": "OLD.REDDIT.COM",
+    "expected": "Reddit"
+  },
+  {
+    "name": "spoofed site",
+    "operation": "siteForHost",
+    "input": "reddit.com.example.org",
+    "expected": "Other"
+  },
+  {
+    "name": "OnlyFans identity",
+    "operation": "siteForHost",
+    "input": "www.onlyfans.com",
+    "expected": "OnlyFans"
+  },
+  {
+    "name": "legacy message defaults",
+    "operation": "download",
+    "input": {
+      "type": "DIRECT_DOWNLOAD"
+    },
+    "expectedSubset": {
+      "urls": [],
+      "imageMode": false,
+      "downloadAll": false,
+      "transferTimeoutMs": 2500,
+      "contractVersion": 1,
+      "namingUrl": null
+    }
+  },
+  {
+    "name": "source identity stays distinct",
+    "operation": "download",
+    "input": {
+      "type": "DIRECT_DOWNLOAD",
+      "urls": [
+        "https://media.example/b.mp4",
+        "https://media.example/a.mp4",
+        "https://media.example/b.mp4"
+      ],
+      "fallbackSourceUrl": "https://scrolller.com/",
+      "scrolllerSourceUrl": "https://scrolller.com/chosen",
+      "namingUrl": "https://media.example/original.gif",
+      "futureField": "kept"
+    },
+    "expectedSubset": {
+      "urls": [
+        "https://media.example/b.mp4",
+        "https://media.example/a.mp4",
+        "https://media.example/b.mp4"
+      ],
+      "fallbackSourceUrl": "https://scrolller.com/",
+      "scrolllerSourceUrl": "https://scrolller.com/chosen",
+      "namingUrl": "https://media.example/original.gif",
+      "futureField": "kept"
+    }
+  },
+  {
+    "name": "explicit settings retained",
+    "operation": "download",
+    "input": {
+      "type": "DIRECT_DOWNLOAD",
+      "imageMode": true,
+      "downloadAll": true,
+      "transferTimeoutMs": 900,
+      "site": "RedGifs",
+      "allowRipsnipFallback": false
+    },
+    "expectedSubset": {
+      "imageMode": true,
+      "downloadAll": true,
+      "transferTimeoutMs": 900,
+      "site": "RedGifs",
+      "allowRipsnipFallback": false
+    }
+  },
+  {
+    "name": "bad URL array",
+    "operation": "download",
+    "input": {
+      "type": "DIRECT_DOWNLOAD",
+      "urls": "https://media.example/private.mp4"
+    },
+    "error": "DLC01"
+  },
+  {
+    "name": "bad boolean",
+    "operation": "download",
+    "input": {
+      "type": "DIRECT_DOWNLOAD",
+      "downloadAll": "true"
+    },
+    "error": "DLC01"
+  },
+  {
+    "name": "bad timeout",
+    "operation": "download",
+    "input": {
+      "type": "DIRECT_DOWNLOAD",
+      "transferTimeoutMs": -1
+    },
+    "error": "DLC01"
+  },
+  {
+    "name": "unsupported version",
+    "operation": "download",
+    "input": {
+      "type": "DIRECT_DOWNLOAD",
+      "contractVersion": 2
+    },
+    "error": "DLC02"
+  },
+  {
+    "name": "wrong message",
+    "operation": "download",
+    "input": {
+      "type": "OF_HLS_DOWNLOAD"
+    },
+    "error": "DLC01"
+  }
+]

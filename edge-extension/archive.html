@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="archive.css">
+    <link rel="stylesheet" href="glass-pages.css">
     <title>Tasu Arşiv</title>
   </head>
   <body>
@@ -12,13 +13,14 @@
         <div class="brand">
           <img src="icon-32.png" alt="" aria-hidden="true">
           <div>
-            <h1>Arşiv</h1>
+            <h1>Hızlı galeri</h1>
             <span id="conn" class="conn">…</span>
           </div>
         </div>
         <div class="actions">
           <button id="refresh" type="button" title="Yenile" aria-label="Yenile">↻</button>
-          <button id="openSite" type="button">Sitede aç</button>
+          <button id="openSite" type="button">Tasu Arşiv’i aç</button>
+          <button id="openFullLists" type="button">Tam liste yönetimi</button>
         </div>
       </header>
 
@@ -31,10 +33,19 @@
 
       <input id="archiveSearch" class="search" type="search" autocomplete="off"
              placeholder="Kullanıcı, subreddit ya da isimle ara…" aria-label="Arşivde ara">
+      <label class="kind-filter">Tür
+        <select id="mediaKind" aria-label="Medya türü">
+          <option value="all">Tümü</option>
+          <option value="image">Fotoğraflar / GIF</option>
+          <option value="video">Videolar</option>
+        </select>
+      </label>
 
       <div id="selbar" class="selbar" hidden>
         <span id="selCount" class="sel-count">0 seçili</span>
         <div class="sel-actions">
+          <button id="selAll" class="sel-btn" type="button">Görünenlerin tümü</button>
+          <button id="selDownload" class="sel-btn" type="button">İndir</button>
           <button id="selDelete" class="sel-btn danger" type="button">Sil</button>
           <button id="selCancel" class="sel-btn" type="button">Vazgeç</button>
         </div>
@@ -55,6 +66,7 @@
 
     <div id="viewer" class="viewer" hidden>
       <div class="viewer-bar">
+        <button id="viewerDownload" class="viewer-btn" type="button" title="Bilgisayara indir" aria-label="Bilgisayara indir">↓</button>
         <button id="viewerDelete" class="viewer-btn danger" type="button" title="Buluttan sil" aria-label="Buluttan sil">🗑</button>
         <div class="viewer-title">
           <span id="viewerName" class="v-name"></span>
@@ -67,8 +79,10 @@
       <button id="viewerNext" class="viewer-nav next" type="button" aria-label="Sonraki">›</button>
     </div>
 
+    <script src="common/sites.js"></script>
     <script src="common/settings.js"></script>
     <script src="common/cloud.js"></script>
+    <script src="common/ui.js"></script>
     <script src="archive.js"></script>
   </body>
 </html>

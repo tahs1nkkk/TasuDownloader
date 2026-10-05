@@ -1,0 +1,55 @@
+name: Shared and platform checks
+
+on:
+  workflow_dispatch: {}
+  push:
+    paths:
+      - "shared/**"
+      - "edge-extension/**"
+      - "ios-app/**"
+      - "orion-ios/**"
+      - "scripts/**"
+      - "tests/**"
+      - "package*.json"
+      - ".github/workflows/**"
+  pull_request:
+    paths:
+      - "shared/**"
+      - "edge-extension/**"
+      - "ios-app/**"
+      - "orion-ios/**"
+      - "scripts/**"
+      - "tests/**"
+      - "package*.json"
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      # Tests use Node's built-in runner and local fixtures, never live media.
+      - run: npm test
+      - name: Install browser test dependencies
+        if: runner.os == 'Linux'
+        run: |
+          npx playwright install --with-deps chromium
+      - name: Verify mobile browser bridges with local fixtures
+        if: runner.os == 'Linux'
+        run: npm run test:browser
+      - name: Verify real Edge archive login and gallery controls
+        if: runner.os == 'Linux'
+        run: npm run test:edge
+      - name: Verify Swift and JavaScriptCore parity
+        if: runner.os == 'macOS'
+        run: node scripts/test-native-core.js

@@ -1,0 +1,28 @@
+/* Shared light glass skin for the existing gallery and diagnostic workflow. */
+:root { color-scheme:light; --bg:#e7edf6; --surface:#f5f8fddd; --surface-2:#fff; --panel:#f5f8fddd; --panel-2:#edf2fa; --line:#fff; --text:#1d304a; --muted:#4a5e77; --accent:#4c7eb8; --blue:#3e6da8; --green:#268457; --ok:#268457; --red:#ae334a; --danger:#ae334a; --amber:#956714; }
+body { color:var(--text); background:radial-gradient(ellipse at 95% 0,#dcdff6,transparent 60%),radial-gradient(ellipse at 0 100%,#d2ebe7,transparent 65%),#e7edf6; background-attachment:fixed; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; font-size:16px; }
+[hidden] { display:none!important; }
+.stickyhead,.topbar { background:#eff3fbed; border-color:white; backdrop-filter:none; -webkit-backdrop-filter:none; }
+body > .topbar { position:sticky; top:0; z-index:12; padding:20px 28px; }
+.sidebar,.card,.list-card { background:#f8faffdf; border:1px solid white; box-shadow:0 6px 24px #26456813; border-radius:22px; }
+button,.secondary,.ghost,.primary,#openSite { background:#fffffff2; border:1px solid white; color:#233a56; border-radius:14px; font-size:14px; transition:transform 160ms ease,opacity 160ms ease; }
+button:hover,.secondary:hover,.ghost:hover,.primary:hover,#openSite:hover { background:#fffffff2; color:#233a56; filter:none; transform:translateY(-1px) scale(1.02); }
+button:disabled { transform:none; opacity:.55; }
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible { outline:3px solid #527eaf; outline-offset:3px; }
+.pass,.pass:hover { background:#e1f4e9; color:#20583d; }.fail,.fail:hover,.danger,.danger:hover { background:#ffe8ed; color:#8c243b; }
+.instruction,.failure-panel ol { color:#2b405d; }.subtitle,.conn,.empty,.step-meta,.progress-head,.legend,.site-row span { color:#4a5e77; }
+.site-badge { color:#345c91; background:#e0eafb; font-size:13px; }
+.expected { background:#e9effb; border-color:#5680b5; }.expected span { color:#385c8a; font-size:12px; }
+.failure-panel { background:#fff4f6; border-color:#e8a6b4; }
+textarea,input,select,.search { background:#fff; color:#233a56; border:1px solid #b9c9dd; border-radius:13px; font-size:14px; }
+pre,kbd { background:#e5edf8; color:#203c61; border-color:#a8bad2; }
+.progress-track { background:#d5e0ef; }#progressBar { background:linear-gradient(90deg,#6793c6,#a095ca); }
+.chip.on,.tab.on { background:#e0eafb; color:#243f64; border-color:#7596c2; }.chip.on .n { color:#3b5270; }
+.banner { background:#fff5df; color:#735318; border-color:#d9b971; }.banner a { color:#5d4210; }
+.selbar { background:#edf5ff; border:1px solid #fff; }.sel-count { color:#233a56; }
+.card.selected,.card.sel,.card[data-selected="true"] { outline:2px solid #39a36e; box-shadow:0 0 14px #44b7835e; }
+.viewer { background:#172536f7; }.viewer-bar { background:#edf2fb; color:#20354f; }.viewer-btn,.viewer-nav { background:#f8faff; color:#20354f; border:1px solid #fff; }.v-name { color:#22354e; }.v-sub { color:#4a5e77; }
+.kind-filter,.chip .n { color:#4a5e77; font-size:13px; }
+.layout { grid-template-columns:250px minmax(0,860px); }.sidebar { top:142px; }
+@media(max-width:980px){body{min-width:0}.layout{grid-template-columns:1fr;padding:16px}.sidebar{position:static}.topbar{flex-wrap:wrap}.layout>.card{padding:20px}.actions,.top-actions,.step-tools{flex-wrap:wrap}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}

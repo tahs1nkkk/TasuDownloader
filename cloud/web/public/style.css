@@ -1,48 +1,68 @@
 /* Tasu Archive — arayüz.
  *
- * Tema: koyu bir zemin, üstünde birkaç büyük renk yıkaması ve cam yüzeyler.
- * Palet kehribar → fuşya → mor; vurgular düz renkle değil gradyanla veriliyor.
- * Izgaradaki kapaklar zaten renkli, arayüzün onlarla yarışmaması ama cansız da
- * durmaması gerekiyor.
+ * Tema: sade. Düz, hafif bebek mavisine çalan bir zemin ve OPAK yüzeyler; tek
+ * vurgu yumuşak bir bebek mavisi. Eski amber → fuşya → mor gradyanları ve cam (blur)
+ * yüzeyler kaldırıldı — hem daha sakin duruyor hem çok daha az kasıyor.
+ * Izgaradaki kapaklar zaten renkli; arayüz geri çekilip onları öne çıkarıyor.
  *
- * iOS uygulamasının WebView'ı <html class="ios"> ile gelir: orada hover yok,
- * güvenli alan payı var ve cam yüzeyler biraz daha yoğun (SwiftUI tarafındaki
- * Liquid Glass ile aynı malzemeden görünsün diye).
+ * Taban katman Pico.css (public/vendor/pico.min.css, index.html'de bundan ÖNCE
+ * yükleniyor): tipografi, form öğeleri ve odak halkaları için makul
+ * varsayılanlar. --pico-* değişkenleri aşağıda bizim maviye eşleniyor ve Pico
+ * bizimle aynı data-theme'i okuduğu için açık/koyu tema birlikte dönüyor; özel
+ * bileşenler (kart, sekme, çekmece, görüntüleyici) bu dosyada elle biçimleniyor.
+ *
+ * iOS uygulamasının WebView'ı <html class="ios"> ile gelir: orada hover yok ve
+ * güvenli alan payı var.
  */
 
 :root {
   color-scheme: dark;
 
-  /* Yüzey tonlarının hepsi bu üç sayıdan türüyor: koyu temada beyaz, açık
-   * temada koyu mürekkep. Tek değişkeni çevirince bütün hover'lar, ayraçlar ve
-   * cam yüzeyler birlikte dönüyor. */
-  --ink: 255, 255, 255;
+  /* Yüzey tonlarının hepsi bu üç sayıdan türüyor: koyu temada açık, açık temada
+   * koyu mürekkep. Tek değişkeni çevirince bütün hover'lar ve ayraçlar birlikte
+   * dönüyor. Artık saf beyaz değil, bebek mavisine çalan açık ton — tema için. */
+  --ink: 202, 224, 248;
 
-  --bg: #08070a;
-  --surface: rgba(21, 19, 26, .78);
-  --surface-solid: #15131a;
-  --raised: rgba(255, 255, 255, .06);
-  --line: rgba(255, 255, 255, .10);
-  --line-strong: rgba(255, 255, 255, .18);
-  --topbar: linear-gradient(180deg, rgba(8,7,10,.92), rgba(8,7,10,.55));
-  --dock: rgba(18, 16, 23, .82);
-  --sheet: rgba(20, 18, 25, .96);
-  --tabs-fade: linear-gradient(180deg, rgba(8,7,10,.96) 62%, transparent);
-  --shadow: rgba(0, 0, 0, .55);
+  /* Sade zemin: düz, nötr koyu. Eski renk yıkaması (aura) kaldırıldı; yüzeyler
+   * OPAK (backdrop-filter bulanıklıkları kaldırıldığı için saydamlık gerekmez —
+   * hem daha sade hem çok daha az kasıyor). */
+  --bg: #0c1421;
+  --surface: #141f30;
+  --surface-solid: #141f30;
+  --raised: rgba(202, 224, 248, .05);
+  --line: rgba(202, 224, 248, .10);
+  --line-strong: rgba(202, 224, 248, .18);
+  --topbar: #101927;
+  --dock: #141f30;
+  --sheet: #141f30;
+  --tabs-fade: #0c1421;
+  --shadow: rgba(0, 0, 0, .5);
 
-  --text: #f5f1ea;
-  --text-dim: #a49dae;
-  --text-faint: #756e83;
+  --text: #e6eefa;
+  --text-dim: #9fb0c8;
+  --text-faint: #6d7d95;
 
-  --amber: #f59e0b;
-  --pink: #ec4899;
-  --violet: #8b5cf6;
-  --sky: #38bdf8;
+  /* Tek vurgu: yumuşak bebek mavisi. Açık bir mavi olduğu için üstündeki metin
+   * ve ikonlar beyaz değil koyu lacivter (--on-accent) — böylece hem otantik
+   * bebek mavisi durur hem yazı okunur kalır. Eski amber/pink/violet/sky
+   * dekoratif renkleri hepsi aynı maviye işaret ediyor ki gradyandan kalan
+   * çağrılar (var(--pink) gölgeleri, var(--sky) simgeleri vb.) tek tonda
+   * toplansın. mint ve danger anlam taşıdığı için (başarı/hata) korunuyor. */
+  --accent: #7ab7ef;
+  --accent-strong: #5ca2e6;
+  --accent-soft: rgba(122, 183, 239, .16);
+  --on-accent: #0a2740;
+
+  --amber: #7ab7ef;
+  --pink: #7ab7ef;
+  --violet: #7ab7ef;
+  --sky: #7ab7ef;
   --mint: #34d399;
   --danger: #f4525f;
 
-  --accent: var(--amber);
-  --grad: linear-gradient(115deg, #fbbf24, #ec4899 55%, #8b5cf6);
+  /* "gradyan" artık düz mavi: var(--grad) kullanan her yer (butonlar, dolgu
+   * çubukları, seçili durumlar) tek düz renge iniyor. */
+  --grad: var(--accent);
 
   --r-sm: 10px;
   --r-md: 14px;
@@ -50,10 +70,35 @@
   --r-xl: 28px;
 
   --top: 62px;
+  /* İçerik sütununun en fazla genişliği. Hem görünümler hem üst çubuk aynı
+   * değeri kullanıyor ki geniş ekranda ikisi de aynı ortalanmış hatta otursun. */
+  --wrap: 1320px;
   --spring: cubic-bezier(.2, .9, .3, 1);
 
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
+}
+
+/* Pico eşlemesi — çerçevenin dokunduğu her yerde marka bizim mavimiz olsun.
+ * Pico, renk değişkenlerini tema seçicilerinde tanımlıyor
+ * (:root:not([data-theme=dark]) vb., özgüllük 0,2,0); düz :root (0,1,0) onları
+ * yenemezdi, o yüzden :root:root ile aynı özgüllüğe çıkıp kaynak sırasıyla
+ * kazanıyoruz (style.css, Pico'dan sonra yükleniyor). Renkler yine bizim
+ * token'lardan okunduğu için --bg/--text temayla değiştikçe Pico da onunla
+ * birlikte döner; köşe ve tipografiyi de burada tek yerde topluyoruz. */
+:root:root {
+  --pico-primary: var(--accent);
+  --pico-primary-background: var(--accent);
+  --pico-primary-hover: var(--accent-strong);
+  --pico-primary-hover-background: var(--accent-strong);
+  --pico-primary-focus: var(--accent-soft);
+  --pico-primary-inverse: var(--on-accent);
+  --pico-border-radius: var(--r-md);
+  --pico-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --pico-background-color: var(--bg);
+  --pico-color: var(--text);
+  --pico-muted-color: var(--text-dim);
+  --pico-card-background-color: var(--surface);
 }
 
 /* Açık tema. Varsayılan "cihaza uy": işletim sistemi açık moddaysa site de
@@ -62,47 +107,47 @@
  * cihazınkinden üstün olmalı. */
 /* Aynı token kümesi iki tetikleyiciyle: sistem tercihi ve elle seçim. CSS'te
  * "şu ya da bu" diye tek yere yazmanın yolu yok, blok iki kez duruyor. */
+/* Açık tema token'ları. Aynı küme iki kez: sistem tercihi ve elle seçim. Nötr
+ * slate yüzeyler, düz opak zeminler; vurgu mavisi iki temada da aynı kalır. */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     color-scheme: light;
-    --ink: 24, 18, 32;
-    --bg: #faf7f2;
-    --surface: rgba(255, 255, 255, .78);
+    --ink: 28, 55, 90;
+    --bg: #eef4fb;
+    --surface: #ffffff;
     --surface-solid: #ffffff;
-    --raised: rgba(24, 18, 32, .05);
-    --line: rgba(24, 18, 32, .12);
-    --line-strong: rgba(24, 18, 32, .24);
-    --topbar: linear-gradient(180deg, rgba(250,247,242,.94), rgba(250,247,242,.6));
-    --dock: rgba(255, 255, 255, .88);
-    --sheet: rgba(255, 255, 255, .97);
-    --tabs-fade: linear-gradient(180deg, rgba(250,247,242,.97) 62%, transparent);
-    --shadow: rgba(40, 30, 60, .22);
-    --text: #1b1622;
-    --text-dim: #574f63;
-    --text-faint: #857c94;
+    --raised: rgba(28, 55, 90, .04);
+    --line: rgba(28, 55, 90, .10);
+    --line-strong: rgba(28, 55, 90, .18);
+    --topbar: #f6faff;
+    --dock: #ffffff;
+    --sheet: #ffffff;
+    --tabs-fade: #eef4fb;
+    --shadow: rgba(20, 40, 70, .16);
+    --text: #22405e;
+    --text-dim: #5a6f88;
+    --text-faint: #8296ac;
   }
-  :root:not([data-theme="dark"]) .aura { opacity: .3; }
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --ink: 24, 18, 32;
-  --bg: #faf7f2;
-  --surface: rgba(255, 255, 255, .78);
+  --ink: 28, 55, 90;
+  --bg: #eef4fb;
+  --surface: #ffffff;
   --surface-solid: #ffffff;
-  --raised: rgba(24, 18, 32, .05);
-  --line: rgba(24, 18, 32, .12);
-  --line-strong: rgba(24, 18, 32, .24);
-  --topbar: linear-gradient(180deg, rgba(250,247,242,.94), rgba(250,247,242,.6));
-  --dock: rgba(255, 255, 255, .88);
-  --sheet: rgba(255, 255, 255, .97);
-  --tabs-fade: linear-gradient(180deg, rgba(250,247,242,.97) 62%, transparent);
-  --shadow: rgba(40, 30, 60, .22);
-  --text: #1b1622;
-  --text-dim: #574f63;
-  --text-faint: #857c94;
+  --raised: rgba(28, 55, 90, .04);
+  --line: rgba(28, 55, 90, .10);
+  --line-strong: rgba(28, 55, 90, .18);
+  --topbar: #f6faff;
+  --dock: #ffffff;
+  --sheet: #ffffff;
+  --tabs-fade: #eef4fb;
+  --shadow: rgba(20, 40, 70, .16);
+  --text: #22405e;
+  --text-dim: #5a6f88;
+  --text-faint: #8296ac;
 }
-:root[data-theme="light"] .aura { opacity: .3; }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -124,16 +169,28 @@ body {
 
 button { font-family: inherit; }
 
-.aura {
-  position: fixed; inset: -25%; z-index: 0; pointer-events: none;
-  filter: blur(100px); opacity: .5;
-  background:
-    radial-gradient(32% 32% at 18% 20%, #7c3aed 0%, transparent 62%),
-    radial-gradient(30% 30% at 82% 16%, #f59e0b 0%, transparent 60%),
-    radial-gradient(34% 34% at 55% 88%, #ec4899 0%, transparent 62%);
-  animation: drift 26s ease-in-out infinite alternate;
-}
-@keyframes drift { to { transform: translate3d(2%, -5%, 0) scale(1.1); } }
+/* Pico taban katmanı form öğelerine alt boşluk ekliyor; uygulamanın kendi düzeni
+ * boşlukları zaten yönetiyor. Pico bunu input:not([type=checkbox]):not([type=radio])
+ * ile (özgüllük 0,2,1) veriyor, o yüzden düz "input" yetmez — aynı seçiciyi
+ * aynalayıp kaynak sırasıyla (style.css Pico'dan sonra) sıfırlıyoruz; böylece
+ * arama kutuları ve diyalog alanlarının altında boşluk kalmıyor. */
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea { margin-bottom: 0; }
+
+/* Pico, <button>'ları form öğesi sayıp dolgu + satır yüksekliği veriyor (düz
+ * "button" seçicisi, özgüllük 0,0,1). Bizim buton bileşenlerimiz kendi kutusunu
+ * kuruyor: ikon butonları (.icon-btn/.icon-pill) sabit boyut + grid ile
+ * ortalanıyor, metin butonları dolgusunu kendi ayarlıyor. Pico'nun yatay dolgusu
+ * ikon butonlarını şişiriyordu — border-box'ta dolgu+kenar sabit genişliği aşınca
+ * kutu büyüyor ve SVG merkezden sağ-alta kayıyordu. Tabanı sıfırlıyoruz; kaynak
+ * sırası bizde (style.css Pico'dan sonra), kendi dolgusunu yazan butonlar
+ * (.pill/.add-btn/.vbtn, özgüllük 0,1,0) bundan etkilenmez. */
+button { padding: 0; line-height: normal; }
+
+/* Zemindeki renk yıkaması (.aura) kaldırıldı: sabit tam-ekran blur(100px) +
+ * sonsuz animasyon, hiçbir şey olmasa bile GPU'yu sürekli çalıştırıyordu ve
+ * sade tasarımın istemediği renk yıkamasıydı. Zemin artık düz --bg. */
 
 .grow { flex: 1 1 auto; min-width: 0; }
 
@@ -163,10 +220,10 @@ button { font-family: inherit; }
   transition: opacity .35s ease, transform .5s var(--spring);
   transform: scale(1.04);
 }
-.half-lists::before { background: radial-gradient(75% 70% at 30% 45%, #38bdf855, transparent 70%),
-  linear-gradient(160deg, #0d1520, #08070a 70%); }
-.half-media::before { background: radial-gradient(75% 70% at 70% 45%, #ec489955, transparent 70%),
-  linear-gradient(200deg, #1c0f1a, #08070a 70%); }
+/* Sade kapı: düz zemin, üstünde yalnız hafif bir mavi ipucu. İki yarım aynı
+ * dili konuşuyor; ayrımı hover'da parlayan konum ve aradaki ayraç veriyor. */
+.half-lists::before { background: radial-gradient(68% 58% at 30% 42%, var(--accent-soft), transparent 72%); }
+.half-media::before { background: radial-gradient(68% 58% at 70% 42%, var(--accent-soft), transparent 72%); }
 .half:hover::before, .half:focus-visible::before { transform: scale(1); opacity: .92; }
 
 .half-lists { border-right: 1px solid rgba(var(--ink),.07); }
@@ -204,9 +261,13 @@ button { font-family: inherit; }
 
 .topbar {
   flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
-  height: calc(var(--top) + var(--safe-t)); padding: var(--safe-t) 14px 0;
+  height: calc(var(--top) + var(--safe-t));
+  /* Geniş ekranda üst çubuğun içeriği (marka + düğmeler) ortadaki içerik
+   * sütununa hizalansın: yanlardan en az 14px, sütun 1320px'i aşınca boşluk
+   * büyüyerek marka ve düğmeleri görünümlerle aynı hatta çeker. Zemin yine tam
+   * genişlikte kalır; yalnız içerik ortalanır. */
+  padding: var(--safe-t) max(14px, calc((100% - var(--wrap)) / 2)) 0;
   background: var(--topbar);
-  backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%);
   border-bottom: 1px solid var(--line);
 }
 
@@ -242,7 +303,7 @@ button { font-family: inherit; }
 .add-label { max-width: 0; opacity: 0; white-space: nowrap;
   transition: max-width .26s var(--spring), opacity .18s ease; }
 .add-btn:hover, .add-btn:focus-visible, .add-btn.open {
-  background: var(--grad); color: #1a1206; border-color: transparent;
+  background: var(--grad); color: var(--on-accent); border-color: transparent;
   gap: 7px; padding: 0 13px 0 11px;
   box-shadow: 0 10px 26px -12px var(--pink); transform: translateY(-1px);
 }
@@ -280,7 +341,7 @@ button { font-family: inherit; }
   width: 40px; height: 92px; display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 4px; cursor: pointer; color: var(--text-dim);
   background: linear-gradient(90deg, rgba(var(--ink),.09), rgba(var(--ink),.03));
-  border: 1px solid var(--line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--line);
   transition: width .26s var(--spring), color .2s, background .2s;
 }
 .edge svg { width: 19px; height: 19px; }
@@ -290,15 +351,24 @@ button { font-family: inherit; }
 .edge-right { right: 0; border-right: 0; border-radius: var(--r-lg) 0 0 var(--r-lg); }
 .edge:hover { width: 48px; color: var(--text);
   background: linear-gradient(90deg, rgba(var(--ink),.16), rgba(var(--ink),.05)); }
+/* Bulunduğun bölüm: kenar gizlenmiyor, "buradasın" diye mavi vurguyla duruyor;
+   diğer kenar nötr kalıp "oraya geç" çağrısı yapıyor. */
+.edge.current { color: var(--accent); border-color: var(--accent);
+  background: linear-gradient(90deg, var(--accent-soft), rgba(var(--ink),.03)); }
+.edge.current .edge-label { opacity: .95; }
 .edge[hidden] { display: none; }
 
 /* ------------------------------------------------------------------ sahne */
 
 .stage { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
-  padding: 18px 56px calc(96px + var(--safe-b)); scroll-behavior: smooth; }
+  padding: 18px 56px calc(96px + var(--safe-b)); scroll-behavior: smooth;
+  /* Kaydırma çubuğu boşluğunu iki yanda da ayır: içerik her zaman simetrik
+   * ortalanır (üst çubukla aynı hatta oturur) ve çubuk gelip gidince düzen
+   * yatay zıplamaz. Destekmeyen tarayıcıda zararsızca yok sayılır. */
+  scrollbar-gutter: stable both-edges; }
 @media (max-width: 700px) { .stage { padding-left: 44px; padding-right: 44px; } }
 
-.view { max-width: 1320px; margin: 0 auto; animation: slideIn .32s var(--spring) both; }
+.view { max-width: var(--wrap); margin: 0 auto; animation: slideIn .32s var(--spring) both; }
 .view[hidden] { display: none; }
 .view.from-right { animation-name: slideFromRight; }
 .view.from-left { animation-name: slideFromLeft; }
@@ -326,7 +396,7 @@ button { font-family: inherit; }
   transition: background .18s, color .18s, transform .16s var(--spring), border-color .18s; }
 .pill:hover { background: rgba(var(--ink),.12); color: var(--text); transform: translateY(-1px); }
 .pill:active { transform: scale(.96); }
-.pill.on { background: var(--grad); color: #1a1206; border-color: transparent;
+.pill.on { background: var(--grad); color: var(--on-accent); border-color: transparent;
   box-shadow: 0 8px 22px -12px var(--pink); }
 .pill.danger { color: #ffb4bb; border-color: rgba(244,82,95,.32); background: rgba(244,82,95,.14); }
 .pill.danger:hover { background: rgba(244,82,95,.26); color: #fff; }
@@ -339,41 +409,34 @@ button { font-family: inherit; }
 .icon-pill svg { width: 17px; height: 17px; }
 .icon-pill:hover { background: rgba(var(--ink),.12); color: var(--text); }
 .icon-pill:active { transform: scale(.94); }
-.icon-pill.on { background: var(--grad); color: #1a1206; border-color: transparent;
+.icon-pill.on { background: var(--grad); color: var(--on-accent); border-color: transparent;
   box-shadow: 0 8px 22px -12px var(--pink); }
 
 /* ========================================================== site sekmeleri */
 
-/* Tek satır, alçak bir şerit. Sekmeler eskiden iki kat yüksekti ve ızgaranın
- * üstünde bir duvar gibi duruyordu; artık ikon + ad yan yana, tek satırda.
- *
- * Arka plan sitenin kendi logosu: ::before aynı SVG'yi çok büyütüp bulanıklaştırıyor
- * (--tab-bg, core.js'te data: URI olarak veriliyor). Gradyan yerine bu, çünkü
- * "sitenin rengi" zaten logonun içinde ve her sekme kendi rengini taşıyor. */
+/* Tek satır, alçak bir şerit: ikon + ad yan yana. Eskiden her sekmenin ardında
+ * sitenin logosunu çok büyütüp bulanıklaştıran bir ::before (blur(18px)) vardı;
+ * kaydırırken her sekme ayrı bir bulanık katman demekti. Sade tema için o hale
+ * kaldırıldı: sitenin simgesi zaten .site-mark'ta net duruyor, etkin sekme de
+ * yalnız mavi kenar + hafif mavi dolguyla ayrılıyor. (--tab-bg/--tab-glow artık
+ * kullanılmıyor; core.js hâlâ üretebilir, zararsız.) */
+/* Şeridin arkasındaki sabit dolgu kaldırıldı (kullanıcı isteği): zemin saydam,
+ * yalnız sekme düğmeleri (kendi --surface-solid dolgusuyla) görünür kalır ve
+ * ızgara aradaki boşluktan yukarı kayar. */
 .site-tabs {
   position: sticky; top: 0; z-index: 6; display: flex; gap: 6px; margin: -18px -6px 12px;
-  padding: 8px 6px; background: var(--tabs-fade);
+  padding: 8px 6px; background: transparent;
 }
 .site-tab {
   flex: 1 1 0; min-width: 0; position: relative; cursor: pointer; overflow: hidden;
   border: 1px solid var(--line); border-radius: var(--r-sm); padding: 0 10px; height: 38px;
   background: var(--surface-solid); color: var(--text-dim);
   display: flex; align-items: center; justify-content: center; gap: 7px;
-  transition: transform .2s var(--spring), border-color .2s, color .2s, box-shadow .2s;
-}
-/* Logonun kendisi, taşacak kadar büyütülüp bulanıklaştırılmış hali. Yakınlaşınca
- * marka rengi kalıyor ama şekil okunmuyor — istenen tam olarak bu. */
-.site-tab::before {
-  content: ""; position: absolute; inset: -60%; opacity: .34;
-  background: var(--tab-bg, linear-gradient(135deg, #444, #222)) center / 100% 100% no-repeat;
-  filter: blur(18px) saturate(1.7); transition: opacity .2s;
+  transition: background .2s, border-color .2s, color .2s;
 }
 .site-tab > * { position: relative; z-index: 1; }
-.site-tab:hover { color: var(--text); border-color: var(--line-strong); }
-.site-tab:hover::before { opacity: .52; }
-.site-tab.on { color: var(--text); border-color: var(--line-strong);
-  box-shadow: 0 8px 20px -14px var(--tab-glow, #000); }
-.site-tab.on::before { opacity: .85; }
+.site-tab:hover { color: var(--text); border-color: var(--line-strong); background: rgba(var(--ink),.06); }
+.site-tab.on { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
 
 /* Kutu yok: ikon doğrudan zeminin üstünde duruyor ve yazıyla aynı boyda. */
 .site-mark { width: 18px; height: 18px; flex: 0 0 auto; display: grid; place-items: center;
@@ -425,7 +488,7 @@ button { font-family: inherit; }
 }
 
 .list-card { border-radius: var(--r-lg); overflow: hidden; background: var(--surface);
-  border: 1px solid var(--line); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--line);
   transition: transform .22s var(--spring), border-color .2s, box-shadow .22s; }
 .list-card:hover { transform: translateY(-3px); border-color: var(--line-strong);
   box-shadow: 0 22px 44px -26px var(--shadow); }
@@ -504,8 +567,11 @@ button { font-family: inherit; }
   content-visibility: auto; contain-intrinsic-size: auto 220px;
   transition: transform .22s var(--spring), border-color .2s, box-shadow .22s,
               opacity .28s ease, scale .28s var(--spring); }
+/* Hover gölgesi hafifletildi: yoğun ızgarada fare gezerken büyük bulanık gölge
+ * (blur 42px) her kartta pahalı yeniden boyama yapıyordu; daha küçük bir gölge
+ * aynı "kalkma" hissini çok daha ucuz veriyor. */
 .media-card:hover { transform: translateY(-3px); border-color: var(--line-strong);
-  box-shadow: 0 22px 42px -24px var(--shadow); }
+  box-shadow: 0 10px 20px -14px var(--shadow); }
 /* Silinen kart sayfa yenilenmeden yerinde eriyip gider. */
 .media-card.leaving { opacity: 0; scale: .9; pointer-events: none; }
 
@@ -525,18 +591,16 @@ button { font-family: inherit; }
   background: linear-gradient(0deg, rgba(6,5,9,.94) 12%, rgba(6,5,9,.6) 48%, transparent);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .media-size { position: absolute; top: 8px; right: 9px; font-size: 10px; font-weight: 700;
-  color: #fff; opacity: 0; padding: 2px 7px; border-radius: 99px; background: rgba(0,0,0,.55);
-  backdrop-filter: blur(6px); transition: opacity .2s; pointer-events: none; }
+  color: #fff; opacity: 0; padding: 2px 7px; border-radius: 99px; background: rgba(0,0,0,.55); transition: opacity .2s; pointer-events: none; }
 .media-card:hover .media-size { opacity: .9; }
 
 /* Videoyu ortadaki play simgesi anlatır — köşedeki "VİDEO" etiketine gerek yok. */
 .play-badge { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
 .play-badge span { width: 46px; height: 46px; border-radius: 99px; display: grid; place-items: center;
   background: rgba(10,8,14,.5); border: 1px solid rgba(255,255,255,.28);
-  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
   transition: transform .24s var(--spring), background .2s; }
 .play-badge svg { width: 17px; height: 17px; margin-left: 2px; fill: #fff; }
-.media-card:hover .play-badge span { transform: scale(1.12); background: rgba(236,72,153,.55); }
+.media-card:hover .play-badge span { transform: scale(1.12); background: var(--accent); }
 
 /* Seçim. Ayrı bir "seçim moduna geç" düğmesi yok: tik her zaman orada, sadece
  * fareyi kartın üstüne getirene kadar görünmüyor. Bir şey seçilir seçilmez
@@ -546,10 +610,9 @@ button { font-family: inherit; }
 .media-card .check { position: absolute; top: 8px; left: 8px; z-index: 2; width: 24px; height: 24px;
   border-radius: 99px; display: grid; place-items: center; cursor: pointer; padding: 0;
   border: 2px solid rgba(255,255,255,.85); background: rgba(0,0,0,.4);
-  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   opacity: 0; transform: scale(.8); transition: opacity .16s, transform .16s var(--spring),
     background .16s, border-color .16s; }
-.media-card .check svg { width: 13px; height: 13px; opacity: 0; stroke: #1a1206; stroke-width: 3; }
+.media-card .check svg { width: 13px; height: 13px; opacity: 0; stroke: var(--on-accent); stroke-width: 3; }
 .media-card:hover .check,
 .media-card:focus-within .check,
 body.selecting .media-card .check { opacity: 1; transform: none; }
@@ -560,9 +623,11 @@ body.selecting .media-card:hover { transform: none; }
 .media-card.picked .check { background: var(--amber); border-color: #fff; }
 .media-card.picked .check svg { opacity: 1; }
 
-/* Sonsuz kaydırmanın tetikleyicisi: ızgaranın son satırından sonra bir tam
-   satır boyu boşluk. Görünür bir şey değil, sadece IntersectionObserver hedefi. */
-.grid-sentinel { grid-column: 1 / -1; height: 1px; }
+/* Windowing boşlukları: kaydırmayla pencere dışına çıkan kartların yerini piksel
+   olarak tutan iki görünmez tam-satır blok (üstte ve altta). Yüksekliğini JS,
+   ölçülen satır sayısı × satır yüksekliğinden ayarlar; böylece kaydırma çubuğu
+   ve konumu gerçek ızgaradaki gibi durur. */
+.grid-pad { grid-column: 1 / -1; height: 0; }
 
 .skeleton { border-radius: var(--r-md); aspect-ratio: 1; background:
   linear-gradient(100deg, rgba(var(--ink),.04) 30%, rgba(var(--ink),.10) 50%, rgba(var(--ink),.04) 70%);
@@ -583,7 +648,6 @@ body.selecting .media-card:hover { transform: none; }
   max-width: calc(100vw - 24px); overflow-x: auto;
   display: flex; align-items: center; gap: 14px; padding: 9px 18px; border-radius: 99px;
   background: var(--dock); border: 1px solid var(--line);
-  backdrop-filter: blur(22px) saturate(160%); -webkit-backdrop-filter: blur(22px) saturate(160%);
   box-shadow: 0 20px 50px -24px var(--shadow); animation: dockIn .3s var(--spring) both;
 }
 @keyframes dockIn { from { opacity: 0; transform: translate(-50%, 14px); } }
@@ -610,15 +674,13 @@ body.selecting .media-card:hover { transform: none; }
 
 /* ================================================================= çekmece */
 
-.scrim { position: fixed; inset: 0; z-index: 28; background: rgba(4,3,6,.62);
-  backdrop-filter: blur(3px); animation: fadeIn .2s ease both; }
+.scrim { position: fixed; inset: 0; z-index: 28; background: rgba(4,3,6,.62); animation: fadeIn .2s ease both; }
 .scrim[hidden] { display: none; }
 
 .drawer {
   position: fixed; top: 0; bottom: 0; left: 0; z-index: 30; width: min(320px, 86vw);
   padding: calc(20px + var(--safe-t)) 16px calc(20px + var(--safe-b));
   background: var(--sheet); border-right: 1px solid var(--line);
-  backdrop-filter: blur(28px) saturate(160%); -webkit-backdrop-filter: blur(28px) saturate(160%);
   overflow-y: auto; animation: drawerIn .3s var(--spring) both;
 }
 .drawer[hidden] { display: none; }
@@ -632,8 +694,8 @@ body.selecting .media-card:hover { transform: none; }
   color: var(--text); cursor: pointer; margin-bottom: 8px; font: inherit; text-align: left;
   transition: background .18s, border-color .18s, transform .16s var(--spring); }
 .drive-row:hover { background: rgba(var(--ink),.11); transform: translateX(2px); }
-.drive-row.on { border-color: transparent;
-  background: linear-gradient(100deg, rgba(245,158,11,.22), rgba(236,72,153,.18)); }
+.drive-row.on { border-color: var(--accent);
+  background: var(--accent-soft); }
 
 /* Kapak görseli: satırın sağ tarafında durur, sola doğru siyaha erir. Yazının
    olduğu tarafı hiç kirletmediği için her görselle okunur kalıyor. */
@@ -654,7 +716,7 @@ body.selecting .media-card:hover { transform: none; }
 /* Aynı ölçüde ama kırmızı değil: düzenleme yıkıcı bir eylem değil. */
 .drive-edit:hover { background: rgba(var(--ink),.16); color: var(--text); }
 .drive-mark { width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center;
-  font: 800 13px/1 inherit; color: #14100a; flex: 0 0 auto; }
+  font: 800 13px/1 inherit; color: var(--on-accent); flex: 0 0 auto; }
 .drive-meta { flex: 1 1 auto; min-width: 0; }
 .drive-meta b { display: block; font-size: 13.5px; font-weight: 600; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
@@ -667,7 +729,7 @@ body.selecting .media-card:hover { transform: none; }
 /* ========================================================== görüntüleyici */
 
 .viewer { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column;
-  background: rgba(4,3,6,.9); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  background: rgba(4,3,6,.9);
   animation: fadeIn .2s ease both; }
 .viewer[hidden] { display: none; }
 
@@ -686,10 +748,16 @@ body.selecting .media-card:hover { transform: none; }
 .vbtn svg { width: 15px; height: 15px; }
 .vbtn:hover { background: rgba(var(--ink),.14); transform: translateY(-1px); }
 .vbtn:active { transform: scale(.96); }
-.vbtn.primary { background: var(--grad); color: #1a1206; border-color: transparent;
+.vbtn.primary { background: var(--grad); color: var(--on-accent); border-color: transparent;
   box-shadow: 0 10px 24px -12px var(--pink); }
 .vbtn.danger { background: rgba(244,82,95,.16); border-color: rgba(244,82,95,.34); color: #ffb4bb; }
 .vbtn.danger:hover { background: rgba(244,82,95,.3); color: #fff; }
+/* Görüntüleyici çubuğundaki düz butonlar (Paylaş/Kapat) koyu örtünün üstünde
+ * kaybolmasın: %5 yerine dolgulu bir yüzey + belirgin kenar. İndir (primary) ve
+ * Sil (danger) zaten dolgulu olduğu için bunlara dokunmuyoruz. */
+.viewer-bar .vbtn:not(.primary):not(.danger) { background: var(--surface-solid);
+  border-color: var(--line-strong); }
+.viewer-bar .vbtn:not(.primary):not(.danger):hover { background: rgba(var(--ink),.16); }
 @media (max-width: 620px) { .vbtn .vlabel { display: none; } .vbtn { padding: 0 11px; } }
 
 /* Sahne tek hücrelik bir ızgara: satır boyu kesin (kapsayıcı yüksekliği), bu
@@ -706,8 +774,7 @@ body.selecting .media-card:hover { transform: none; }
 
 .viewer-nav { position: absolute; top: 50%; transform: translateY(-50%); z-index: 3;
   width: 44px; height: 74px; border-radius: 16px; display: grid; place-items: center; cursor: pointer;
-  border: 1px solid var(--line); background: rgba(20,18,26,.6); color: var(--text-dim);
-  backdrop-filter: blur(12px); transition: background .18s, color .18s; }
+  border: 1px solid var(--line); background: rgba(20,18,26,.6); color: var(--text-dim); transition: background .18s, color .18s; }
 .viewer-nav:hover { background: rgba(30,27,38,.85); color: #fff; }
 .viewer-nav svg { width: 21px; height: 21px; }
 .viewer-nav.prev { left: 10px; }
@@ -724,6 +791,19 @@ body.selecting .media-card:hover { transform: none; }
   display: grid; place-items: center; }
 .player video { max-width: 100%; max-height: 100%; width: auto; height: auto;
   object-fit: contain; border-radius: var(--r-md); background: #000; display: block; }
+
+/* Tam ekran hedefi görüntüleyicinin tamamı (#viewer host, viewer.js): Paylaş/
+ * Kapat çubuğu da içeride kalsın diye .player değil host tam ekrana gidiyor.
+ * Host viewport'u kaplasın; sahne/medya zinciri olduğu gibi sığdırır. :fullscreen
+ * ve eski WebKit öneki ayrı kurallarda — biri geçersizse öbürü düşmesin. */
+.viewer:fullscreen { width: 100vw; height: 100vh; background: #050409; }
+.viewer:-webkit-full-screen { width: 100vw; height: 100vh; background: #050409; }
+/* Native <video> tam ekranı (iOS webkitEnterFullscreen) için de savunma: medya
+ * viewport'u aşmasın. */
+.viewer:fullscreen .player video, .viewer:fullscreen .viewer-stage img {
+  max-width: 100vw; max-height: 100vh; object-fit: contain; }
+.viewer:-webkit-full-screen .player video, .viewer:-webkit-full-screen .viewer-stage img {
+  max-width: 100vw; max-height: 100vh; object-fit: contain; }
 
 .pl-controls { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
   padding: 40px 14px 12px; border-radius: 0 0 var(--r-md) var(--r-md);
@@ -762,7 +842,7 @@ body.selecting .media-card:hover { transform: none; }
 /* ================================================ diyalog / toast / yükleme */
 
 .dialog-host { position: fixed; inset: 0; z-index: 50; display: none; place-items: center;
-  padding: 20px; background: rgba(4,3,6,.66); backdrop-filter: blur(6px); }
+  padding: 20px; background: rgba(4,3,6,.66); }
 .dialog-host.on { display: grid; animation: fadeIn .18s ease both; }
 
 .dialog { width: min(460px, 100%); max-height: 86vh; overflow-y: auto; border-radius: var(--r-xl);
@@ -797,7 +877,7 @@ body.selecting .media-card:hover { transform: none; }
 .dialog .swatch { width: 34px; height: 34px; border-radius: 11px; cursor: pointer;
   border: 2px solid transparent; transition: transform .16s var(--spring); }
 .dialog .swatch:hover { transform: scale(1.1); }
-.dialog .swatch.on { border-color: #fff; }
+.dialog .swatch.on { border-color: var(--text); }
 .dialog .picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px;
   max-height: 240px; overflow-y: auto; padding: 2px; }
 .dialog .picker button { aspect-ratio: 1; border-radius: 10px; overflow: hidden; cursor: pointer;
@@ -836,8 +916,7 @@ body.selecting .media-card:hover { transform: none; }
   align-items: center; pointer-events: none; width: min(440px, calc(100vw - 24px)); }
 .toast { display: flex; align-items: center; gap: 9px; padding: 11px 16px; border-radius: 14px;
   background: var(--sheet); border: 1px solid var(--line-strong); color: var(--text);
-  font-size: 13px; font-weight: 500; box-shadow: 0 18px 40px -20px var(--shadow);
-  backdrop-filter: blur(18px); animation: toastIn .28s var(--spring) both; max-width: 100%; }
+  font-size: 13px; font-weight: 500; box-shadow: 0 18px 40px -20px var(--shadow); animation: toastIn .28s var(--spring) both; max-width: 100%; }
 .toast.out { animation: toastOut .22s ease forwards; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(12px) scale(.96); } }
 @keyframes toastOut { to { opacity: 0; transform: translateY(8px); } }
@@ -849,8 +928,8 @@ body.selecting .media-card:hover { transform: none; }
 .drop { border: 2px dashed var(--line-strong); border-radius: var(--r-lg); padding: 30px 18px;
   text-align: center; color: var(--text-dim); cursor: pointer; margin-bottom: 16px;
   transition: border-color .2s, background .2s, transform .2s var(--spring); }
-.drop:hover { border-color: var(--amber); background: rgba(245,158,11,.07); }
-.drop.armed { border-color: var(--pink); background: rgba(236,72,153,.12); transform: scale(1.01); }
+.drop:hover { border-color: var(--amber); background: var(--accent-soft); }
+.drop.armed { border-color: var(--pink); background: var(--accent-soft); transform: scale(1.01); }
 .drop b { display: block; font-size: 14.5px; color: var(--text); margin-bottom: 4px; }
 .drop small { font-size: 12px; color: var(--text-faint); }
 
@@ -876,7 +955,7 @@ body.selecting .media-card:hover { transform: none; }
 .wz-step i { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 99px;
   background: rgba(var(--ink),.14); color: var(--text-dim); font: 700 11px/1 inherit; font-style: normal; }
 .wz-step.on { color: var(--text); border-color: var(--line-strong); }
-.wz-step.on i { background: var(--grad); color: #fff; }
+.wz-step.on i { background: var(--grad); color: var(--on-accent); }
 .wz-step.past i { background: var(--mint); color: #05231a; }
 
 .wz-hint { margin: 0 0 12px; font-size: 12.5px; color: var(--text-dim); line-height: 1.4; }
@@ -893,7 +972,7 @@ body.selecting .media-card:hover { transform: none; }
 .wz-mark.sm { width: 22px; height: 22px; flex: 0 0 auto; }
 .wz-name { font-size: 12px; font-weight: 600; }
 
-.dialog .wz-cats button.on { border-color: var(--amber); background: rgba(245,158,11,.12); color: var(--text); }
+.dialog .wz-cats button.on { border-color: var(--amber); background: var(--accent-soft); color: var(--text); }
 
 .wz-summary { display: flex; align-items: center; gap: 9px; margin-bottom: 14px; padding: 9px 12px;
   border-radius: 12px; background: var(--raised); border: 1px solid var(--line); }
@@ -911,7 +990,7 @@ body.selecting .media-card:hover { transform: none; }
 /* ======================================================= iOS uygulama içi */
 
 /* WebView'da hover diye bir şey yok; dokunmatikte "hover" ilk dokunuşta takılı
-   kalır. Cam yüzeyleri de biraz daha yoğunlaştırıyoruz. */
+   kalır, o yüzden aşağıda dokunmatikte hover etkilerini geri alıyoruz. */
 /* iOS'ta kenar butonları kalır — telefonda listeler ile medya arasında geçmenin
  * tek yolu kapıya dönmek olmasın. Yalnız daha dar ve baş parmağa göre biraz
  * aşağıda dururlar; etiket yerine ok yeter. */
@@ -920,11 +999,6 @@ html.ios .edge .edge-label { display: none; }
 html.ios .stage { padding-left: 36px; padding-right: 36px; }
 html.ios .add-btn { gap: 7px; padding: 0 13px 0 11px; }
 html.ios .add-btn .add-label { max-width: 130px; opacity: 1; }
-html.ios .topbar,
-html.ios .stats-dock,
-html.ios .select-bar,
-html.ios .drawer { backdrop-filter: blur(30px) saturate(180%);
-  -webkit-backdrop-filter: blur(30px) saturate(180%); }
 /* Site sekmeleri telefonda yapışkan değil. 38px'lik şerit küçük bir ekranda
  * ızgaranın üstünde sürekli duvar gibi duruyordu; artık sayfayla birlikte yukarı
  * çıkıyor, geri kaydırınca dönüyor. */
@@ -950,7 +1024,6 @@ html.ios .media-card:hover, html.ios .list-card:hover { transform: none; box-sha
 html.ios .media-card:hover img, html.ios .media-card:hover video { transform: none; }
 html.ios .list-edit, html.ios .list-del { opacity: 1; }
 html.ios .list-link-del { opacity: .75; }
-html.ios .aura { animation: none; }
 html.ios input, html.ios select { font-size: 16px; } /* iOS otomatik yakınlaştırmasını keser */
 
 @media (hover: none) {

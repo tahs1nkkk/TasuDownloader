@@ -17,8 +17,8 @@ struct SupportedSite: Identifiable, Decodable, Hashable {
 
 /// The home screen's tiles.
 ///
-/// `sites.json` is written by scripts/build-ios-app-js.js from the same `SITES`
-/// array that decides which handlers get injected into which hosts. That is the
+/// `sites.json` is written by scripts/build-ios-app-js.js from the shared
+/// catalog in shared/core/sites.js that selects handlers and host scopes. That is the
 /// whole point: a site cannot become downloadable without also getting a tile,
 /// because there is only one list.
 enum SiteCatalog {

@@ -13,6 +13,9 @@ const S = {
   files: [],
   site: null,      // null = tümü
   query: "",       // arama kutusu metni (kaynak/isim süzgeci)
+  kind: "all",
+  downloading: false,
+  generation: 0,
   lists: null,     // { lists:[…], tombstones:[…] }
   listsLoaded: false,
   tab: "media",
@@ -58,6 +61,7 @@ function siteLabel(site) {
 }
 
 function setConn(text, level = "") {
+  if (level) globalThis.RG_UI?.toast(text, level);
   const c = $("conn");
   c.textContent = text;
   if (level) c.dataset.level = level; else delete c.dataset.level;
@@ -70,13 +74,17 @@ function showBanner(html) {
   b.innerHTML = html;
 }
 
-function openSite() {
-  const base = C.normalizeBase(S.settings.cloudBase);
-  if (base) chrome.tabs.create({ url: `${base}/` });
+async function openSite(view = "home") {
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "OPEN_TASU_ARCHIVE", view });
+    if (!result?.ok) throw new Error(result?.error || "Arşiv açılamadı; eklentiyi yeniden yükle.");
+    setConn("Tam arşiv yeni sekmede açılıyor…", "done");
+  } catch (error) { setConn(error.message || "Arşiv açılamadı.", "error"); }
 }
 
 function shownFiles() {
   let files = S.site ? S.files.filter((f) => (f.site || "Other") === S.site) : S.files;
+  if (S.kind !== "all") files = files.filter((f) => S.kind === "video" ? isVideo(f) : !isVideo(f));
   const q = (S.query || "").trim().toLowerCase();
   if (q) {
     files = files.filter((f) =>
@@ -89,17 +97,24 @@ function shownFiles() {
 // --- Medya ---------------------------------------------------------------
 
 async function loadMedia() {
+  const generation = ++S.generation;
+  const settings = S.settings;
   const grid = $("grid");
   grid.innerHTML = "";
   $("mediaEmpty").hidden = true;
   setConn("Yükleniyor…");
   try {
-    S.files = await C.listMedia(S.settings, driveName());
+    const files = await C.listMedia(settings, driveName());
+    if (generation !== S.generation || settings !== S.settings) return;
+    S.files = files;
+    S.selected.clear();
+    if (S.selMode) exitSel();
     S.files.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
     setConn(`Bağlı ✓ · ${S.files.length} dosya`, "done");
     renderSiteFilter();
     renderGrid();
   } catch (e) {
+    if (generation !== S.generation || settings !== S.settings) return;
     setConn(e.message || String(e), "error");
     $("mediaEmpty").hidden = false;
     $("mediaEmpty").textContent = e.message || String(e);
@@ -173,6 +188,7 @@ function card(f, index) {
 // --- Çoklu seçim -----------------------------------------------------------
 
 function toggleSel(f, node) {
+  if (S.downloading) return;
   if (S.selected.has(f.key)) S.selected.delete(f.key);
   else S.selected.add(f.key);
 
@@ -205,7 +221,48 @@ function exitSel() {
 
 function updateSelBar() {
   $("selCount").textContent = `${S.selected.size} seçili`;
-  $("selDelete").disabled = !S.selected.size;
+  $("selDelete").disabled = !S.selected.size || S.downloading;
+  $("selDownload").disabled = !S.selected.size || S.downloading;
+  $("selAll").disabled = S.downloading;
+  $("selCancel").disabled = S.downloading;
+}
+
+async function downloadFiles(files, anchor) {
+  if (S.downloading || !files.length) return;
+  const settings = S.settings;
+  if (files.length > 1 && globalThis.RG_UI) {
+    const selected = await globalThis.RG_UI.chooseMedia(anchor, files.map(file => ({
+      url: C.mediaURL(settings, file.key), key: file.key, kind: isVideo(file) ? "video" : "image",
+      thumbnail: C.mediaURL(settings, file.key, { thumb: isVideo(file) })
+    })));
+    if (!selected) return;
+    if (settings !== S.settings) { globalThis.RG_UI.toast("Arşiv bağlantısı değişti. Yeniden seçim yap.", "warning"); return; }
+    const keys = new Set(selected.map(item => item.key));
+    files = files.filter(file => keys.has(file.key));
+  }
+  S.downloading = true;
+  $("viewerDownload").disabled = true;
+  updateSelBar();
+  let started = 0;
+  try {
+    for (const file of files) {
+      if (settings !== S.settings) break;
+      const result = await chrome.runtime.sendMessage({ type: "DOWNLOAD_ARCHIVE_MEDIA", key: file.key, site: file.site || "Other", expectedBase: settings.cloudBase });
+      if (result?.ok) started++;
+    }
+    setConn(`${started}/${files.length} indirme başlatıldı. Durum: Edge İndirilenler.`, started === files.length ? "done" : "error");
+  } catch { setConn(`${started}/${files.length} indirme başlatıldı; kalanlar için tekrar dene.`, "error"); }
+  finally {
+    S.downloading = false;
+    $("viewerDownload").disabled = false;
+    updateSelBar();
+  }
+}
+
+function selectShown() {
+  for (const file of shownFiles()) S.selected.add(file.key);
+  if (S.selected.size) enterSel();
+  renderGrid();
 }
 
 // Seçilenleri buluttan siler; işlem bitince seçim modundan otomatik çıkar.
@@ -223,7 +280,8 @@ async function deleteSelected() {
   exitSel();               // bug4: işlem sonrası otomatik çık
   renderSiteFilter();
   renderGrid();
-  if (failed.length) alert(`${failed.length} öğe silinemedi:\n${failed.join("\n")}`);
+  if (failed.length) setConn(`${failed.length} öğe silinemedi. Tekrar deneyebilirsin.`, "error");
+  else setConn(`${keys.length} öğe silindi.`, "done");
 }
 
 // Sunucudan siler ve yerel durumdan düşürür. Başarısızsa false döner.
@@ -241,7 +299,7 @@ async function removeFromGrid(f) {
     renderSiteFilter();
     renderGrid();
   } catch (e) {
-    alert(`Silinemedi: ${e.message || e}`);
+    setConn(`Silinemedi: ${e.message || e}`, "error");
   }
 }
 
@@ -305,21 +363,25 @@ async function viewerDelete() {
     S.viewerIndex = Math.min(at, S.viewerList.length - 1);
     renderViewer();
   } catch (e) {
-    alert(`Silinemedi: ${e.message || e}`);
+    setConn(`Silinemedi: ${e.message || e}`, "error");
   }
 }
 
 // --- Listeler ------------------------------------------------------------
 
 async function loadLists() {
+  const settings = S.settings;
   const wrap = $("lists");
   wrap.innerHTML = "";
   $("listsEmpty").hidden = true;
   try {
-    S.lists = (await C.getLists(S.settings)) || { lists: [], tombstones: [] };
+    const snapshot = (await C.getLists(settings)) || { lists: [], tombstones: [] };
+    if (settings !== S.settings) return;
+    S.lists = snapshot;
     S.listsLoaded = true;
     renderLists();
   } catch (e) {
+    if (settings !== S.settings) return;
     $("listsEmpty").hidden = false;
     $("listsEmpty").textContent = e.message || String(e);
   }
@@ -373,22 +435,16 @@ function listCard(list) {
   );
 }
 
-async function saveLists() {
-  await C.putLists(S.settings, S.lists);
-}
-
 async function removeItem(list, item) {
-  list.items = (list.items || []).filter((x) => x !== item);
-  try { await saveLists(); renderLists(); }
-  catch (e) { alert(`Kaydedilemedi: ${e.message || e}`); }
+  if (!confirm("Bu bağlantı listeden silinsin mi?")) return;
+  try { S.lists = await C.removeListItem(S.settings, list.id, item.id, item.url); renderLists(); setConn("Bağlantı listeden silindi.", "done"); }
+  catch (e) { setConn(`Kaydedilemedi: ${e.message || e}`, "error"); }
 }
 
 async function removeList(list) {
   if (!confirm(`Liste silinsin mi?\n${list.name || list.id}`)) return;
-  S.lists.lists = (S.lists.lists || []).filter((l) => l.id !== list.id);
-  S.lists.tombstones = [...new Set([...(S.lists.tombstones || []), list.id])];
-  try { await saveLists(); renderLists(); }
-  catch (e) { alert(`Silinemedi: ${e.message || e}`); }
+  try { S.lists = await C.removeList(S.settings, list.id); renderLists(); setConn("Liste silindi.", "done"); }
+  catch (e) { setConn(`Silinemedi: ${e.message || e}`, "error"); }
 }
 
 // --- Sekmeler + kapı -----------------------------------------------------
@@ -401,6 +457,7 @@ function switchTab(tab) {
   $("listsTab").hidden = tab !== "lists";
   $("siteFilter").hidden = tab !== "media"; // çipler yalnız medya sekmesinde
   $("archiveSearch").hidden = tab !== "media"; // arama kutusu da yalnız medyada
+  $("mediaKind").parentElement.hidden = tab !== "media";
   if (tab === "lists" && !S.listsLoaded) loadLists();
 }
 
@@ -410,6 +467,8 @@ function applyGate() {
     showBanner("Worker adresi girilmemiş. Eklenti simgesine tıkla → <strong>Sunucu / Bulut</strong> bölümünden adresi ve jetonu gir.");
     $("tabs").hidden = true;
     $("mediaTab").hidden = true;
+    $("listsTab").hidden = true;
+    $("mediaKind").parentElement.hidden = true;
     $("archiveSearch").hidden = true;
     return false;
   }
@@ -420,11 +479,14 @@ function applyGate() {
     if (link) link.addEventListener("click", (e) => { e.preventDefault(); openSite(); });
     $("tabs").hidden = true;
     $("mediaTab").hidden = true;
+    $("listsTab").hidden = true;
+    $("mediaKind").parentElement.hidden = true;
     $("archiveSearch").hidden = true;
     return false;
   }
   showBanner(null);
   $("tabs").hidden = false;
+  switchTab(S.tab);
   return true;
 }
 
@@ -435,18 +497,23 @@ async function init() {
     if (S.tab === "media") loadMedia();
     else { S.listsLoaded = false; loadLists(); }
   });
-  $("openSite").addEventListener("click", openSite);
+  $("openSite").addEventListener("click", () => openSite());
+  $("openFullLists").addEventListener("click", () => openSite("lists"));
+  $("mediaKind").addEventListener("change", (event) => { S.kind = event.target.value; renderGrid(); });
   $("archiveSearch").addEventListener("input", (e) => {
     S.query = e.target.value || "";
     renderGrid();
   });
   for (const b of document.querySelectorAll(".tab")) b.addEventListener("click", () => switchTab(b.dataset.tab));
   $("viewerClose").addEventListener("click", closeViewer);
+  $("viewerDownload").addEventListener("click", () => downloadFiles(S.viewerList[S.viewerIndex] ? [S.viewerList[S.viewerIndex]] : []));
   $("viewerDelete").addEventListener("click", viewerDelete);
   $("viewerPrev").addEventListener("click", () => viewerStep(-1));
   $("viewerNext").addEventListener("click", () => viewerStep(1));
   $("viewer").addEventListener("click", (e) => { if (e.target === $("viewer")) closeViewer(); });
   $("selDelete").addEventListener("click", deleteSelected);
+  $("selAll").addEventListener("click", selectShown);
+  $("selDownload").addEventListener("click", (event) => downloadFiles(S.files.filter((file) => S.selected.has(file.key)), event.currentTarget));
   $("selCancel").addEventListener("click", exitSel);
   document.addEventListener("keydown", (e) => {
     if (!$("viewer").hidden) {
@@ -463,7 +530,19 @@ async function init() {
   document.addEventListener("dragover", (e) => e.preventDefault());
   document.addEventListener("drop", (e) => e.preventDefault());
 
-  if (applyGate()) loadMedia();
+  chrome.storage.onChanged?.addListener(async (changes, area) => {
+    if (area !== "local" || !changes[globalThis.RG_SETTINGS.SETTINGS_KEY]) return;
+    ++S.generation;
+    closeViewer();
+    S.settings = await C.getSettings();
+    S.files = [];
+    S.lists = null;
+    S.listsLoaded = false;
+    exitSel();
+    $("lists").replaceChildren();
+    if (applyGate() && S.tab === "media") loadMedia();
+  });
+  if (applyGate() && S.tab === "media") loadMedia();
 }
 
 init();

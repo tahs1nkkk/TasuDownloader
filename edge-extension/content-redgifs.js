@@ -1,6 +1,9 @@
+// Generated from shared/sites/redgifs.js; run npm run build:shared. Do not edit.
+// Shared source; platform packages are generated from this file.
 (() => {
   if (window.__rgRipsnipHelperLoaded) return;
   window.__rgRipsnipHelperLoaded = true;
+  const life = globalThis.RG_LIFECYCLE?.create("redgifs") || { listen:(t,...a)=>t.addEventListener(...a), unlisten:(t,...a)=>t.removeEventListener(...a), MutationObserver, setInterval:globalThis.setInterval.bind(globalThis), clearInterval:globalThis.clearInterval.bind(globalThis), raf:globalThis.requestAnimationFrame.bind(globalThis), cancelAnimationFrame:globalThis.cancelAnimationFrame.bind(globalThis) };
 
   const BUTTON_ID = "rg-ripsnip-helper-button";
   const STATUS_ID = "rg-ripsnip-helper-status";
@@ -20,6 +23,7 @@
   let pendingProfileResumeStarted = false;
   let statusTimer = null;
   let settings = { ...DEFAULT_SETTINGS };
+  let viewerDownloadButton = null, viewerWebButton = null;
   // Folder picked for the current user-initiated download (set by run* handlers).
   let chosenFolder = "";
 
@@ -71,6 +75,7 @@
   }
 
   function setStatus(text, level = "idle") {
+    if (globalThis.RG_UI) { globalThis.RG_UI.toast(text, level); return; }
     const status = document.getElementById(STATUS_ID);
     if (!status) return;
     if (statusTimer) {
@@ -88,20 +93,39 @@
     }
   }
 
+  function connectionErrorCode(error) {
+    const text = String(error && (error.message || error) || "");
+    if (/extension context invalidated/i.test(text)) return "E_RELOAD";
+    if (/could not establish connection|receiving end does not exist|message (?:port|channel).*closed/i.test(text)) return "E_CONNECTION";
+    return "";
+  }
+
+  function stopDownloadFallback(error) {
+    // A lost connection cannot be repaired by opening the site's share menu.
+    // A timed-out request may still complete, so do not start a duplicate job.
+    return !!connectionErrorCode(error) || /timed out|\bDLC\d{2}\b/i.test(String(error?.message || error || ""));
+  }
+
   function toErrorCode(error) {
     const text = String(error && (error.message || error) || "");
+    const connection = connectionErrorCode(error);
+    if (connection === "E_RELOAD") return "E_RELOAD: Eklenti bağlantısı yenilenmeli. RedGifs sayfasını Ctrl+R ile yenile.";
+    if (connection === "E_CONNECTION") return "E_CONNECTION: Eklentiye ulaşılamıyor. Tasu Apps'in açık olduğunu kontrol et ve sayfayı Ctrl+R ile yenile.";
+    // Preserve safe diagnostic codes, never URLs, tokens or arbitrary payloads.
+    const backend = text.match(/\b(?:BG\d{2}|DLC\d{2})\b/);
+    if (backend) return backend[0];
+    if (/timed out/i.test(text)) return "E_TIMEOUT: İstek zaman aşımına uğradı. Tekrar denemeden önce indirmeleri kontrol et.";
     if (/viewer video/i.test(text)) return "E_NO_VIEWER_VIDEO";
     if (/center item|no Redgifs video is visible|no center video/i.test(text)) return "E_NO_CENTER_VIDEO";
-    if (/ad/i.test(text)) return "E_AD";
+    if (/\b(?:ad|ads|advertisement|sponsored)\b/i.test(text)) return "E_AD";
     if (/video menu/i.test(text)) return "E_NO_MENU";
     if (/share option/i.test(text)) return "E_SHARE";
     if (/copy link/i.test(text)) return "E_COPY";
     if (/clipboard|copied/i.test(text)) return "E_CLIPBOARD";
-    if (/direct media/i.test(text)) return "E_DIRECT";
     if (/disabled/i.test(text)) return "E_DISABLED";
+    if (/direct media/i.test(text)) return "E_DIRECT";
     if (/Ripsnip URL input/i.test(text)) return "E_RIPSNIP_INPUT";
     if (/Ripsnip submit/i.test(text)) return "E_RIPSNIP_SUBMIT";
-    if (/timed out/i.test(text)) return "E_TIMEOUT";
     if (/Download failed/i.test(text)) return "E_DOWNLOAD";
     return "E_FAILED";
   }
@@ -297,6 +321,7 @@
     if (button) document.documentElement.append(button);
     document.documentElement.append(status);
     const viewerButton = document.createElement("button");
+    viewerDownloadButton = viewerButton;
     viewerButton.id = VIEWER_BUTTON_ID;
     viewerButton.type = "button";
     viewerButton.title = "Download this video";
@@ -952,7 +977,9 @@
   }
 
   function viewerVideoItem() {
+    const fullscreen = document.fullscreenElement;
     const videos = [...document.querySelectorAll("video")]
+      .filter(video => !fullscreen || fullscreen === video || fullscreen.contains(video))
       .map((video) => {
         const rect = video.getBoundingClientRect();
         const width = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0));
@@ -982,12 +1009,27 @@
     return /^\/watch\//i.test(location.pathname) && location.hostname.endsWith("redgifs.com");
   }
 
+  function isExpandedVideo(video) {
+    const fullscreen = document.fullscreenElement;
+    if (fullscreen && (fullscreen === video || fullscreen.contains(video))) return true;
+    if (video.closest('[role="dialog"], [aria-modal="true"], [class*="lightbox" i], [class*="fullscreen" i]')) return true;
+    // In-site viewers need not change /explore or /niches to /watch. Accept a
+    // large fixed overlay, not merely the feed's active/playing preview tile.
+    const r = video.getBoundingClientRect();
+    if (r.height < innerHeight * .7) return false;
+    for (let el = video; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
+      const rect = el.getBoundingClientRect();
+      if (getComputedStyle(el).position === "fixed" && rect.width >= innerWidth * .7 && rect.height >= innerHeight * .7) return true;
+    }
+    return false;
+  }
+
   // Özellik D — görüntüleyici indirme butonunun altındaki "web listesi" butonunu
   // (yoksa) oluştur. installUi() tek sefer çalışıp erken döndüğü için burada
   // tembel kuruyoruz; helper (weblink.js) geç yüklenirse sonraki turda yakalanır.
   function ensureViewerWebButton() {
-    let web = document.getElementById(VIEWER_WEB_ID);
-    if (web && web.isConnected) return web;
+    let web = document.getElementById(VIEWER_WEB_ID) || viewerWebButton;
+    if (web) return web;
     if (!window.rgMakeWebIconButton) return null;
     web = window.rgMakeWebIconButton(() => {
       let url = "";
@@ -998,6 +1040,7 @@
       return { url: url || location.href, title: document.title };
     }, { size: clamp(Number(settings.buttonSize) || 44, 28, 72) });
     web.id = VIEWER_WEB_ID;
+    viewerWebButton = web;
     web.style.position = "fixed";
     web.style.display = "none";
     document.documentElement.append(web);
@@ -1005,7 +1048,7 @@
   }
 
   function updateViewerButton() {
-    const button = document.getElementById(VIEWER_BUTTON_ID);
+    const button = document.getElementById(VIEWER_BUTTON_ID) || viewerDownloadButton;
     if (!button) return;
 
     const web = ensureViewerWebButton();
@@ -1013,13 +1056,20 @@
       button.style.display = "none";
       if (web) web.style.display = "none";
       document.documentElement.classList.remove("rg-viewer-open");
+      for (const control of [button, web]) if (control && control.parentElement !== document.documentElement) document.documentElement.append(control);
     };
 
-    const onViewerPage = isProfilePage() || isWatchPage();
-    if (window.top !== window || !onViewerPage || !settings.profileButtons) { hideViewer(); return; }
-
     const item = viewerVideoItem();
-    if (!item || (isProfilePage() && isInProfileGrid(item.video))) { hideViewer(); return; }
+    const expanded = item && isExpandedVideo(item.video);
+    const onViewerPage = isProfilePage() || isWatchPage() || expanded;
+    if (window.top !== window || !onViewerPage || !settings.profileButtons) { hideViewer(); return; }
+    if (!item || (!expanded && isProfilePage() && isInProfileGrid(item.video))) { hideViewer(); return; }
+
+    // Native fullscreen containers live in the top layer. Keep controls inside
+    // that container, then restore them when it closes (including removed DOM).
+    const fullscreen = document.fullscreenElement;
+    const host = fullscreen && fullscreen.tagName !== "VIDEO" ? fullscreen : document.documentElement;
+    for (const control of [button, web]) if (control && control.parentElement !== host) host.append(control);
 
     // Use the actual rendered (letterbox-corrected) video box so the button
     // sits on the video's visible top-left, not the page corner.
@@ -1109,16 +1159,28 @@
     return matched.length ? matched : urls;
   }
 
-  // Compute the actual painted video box inside its element (object-fit: contain).
+  // Compute the painted media rectangle, excluding letterboxing. Cover/fill
+  // occupy the whole element; contain/scale-down also honor object-position.
   function videoContentRect(video) {
     const r = video.getBoundingClientRect();
     const vw = video.videoWidth, vh = video.videoHeight;
     if (!vw || !vh) return r;
-    const scale = Math.min(r.width / vw, r.height / vh);
+    const style = getComputedStyle(video);
+    if (!/^(contain|scale-down|none)$/.test(style.objectFit)) return r;
+    const scale = style.objectFit === "none" ? 1 : Math.min(r.width / vw, r.height / vh, style.objectFit === "scale-down" ? 1 : Infinity);
     const cw = vw * scale, ch = vh * scale;
-    const left = r.left + (r.width - cw) / 2;
-    const top = r.top + (r.height - ch) / 2;
-    return { left, top, width: cw, height: ch, right: left + cw, bottom: top + ch };
+    const position = style.objectPosition.split(/\s+/);
+    const offset = (value, free) => {
+      if (value === "left" || value === "top") return 0;
+      if (value === "right" || value === "bottom") return free;
+      if (/^-?[\d.]+%$/.test(value)) return free * parseFloat(value) / 100;
+      if (/^-?[\d.]+px$/.test(value)) return parseFloat(value);
+      return free / 2;
+    };
+    const x = r.left + offset(position[0], r.width - cw), y = r.top + offset(position[1], r.height - ch);
+    const left = Math.max(r.left, x), top = Math.max(r.top, y);
+    const right = Math.min(r.right, x + cw), bottom = Math.min(r.bottom, y + ch);
+    return { left, top, width: right - left, height: bottom - top, right, bottom };
   }
 
   // ── Profile avatar (profile picture) download ─────────────────────────────
@@ -1273,19 +1335,24 @@
 
   function sendDirectDownload(urls, fallbackSourceUrl = "", options = {}) {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("Direct media timed out.")), 18000);
-      chrome.runtime.sendMessage({ type: "DIRECT_DOWNLOAD", urls, fallbackSourceUrl, folderName: chosenFolder, subFolder: currentNicheFolder(), source: currentSource(), ...options }, (response) => {
+      let settled = false;
+      const finish = (error, response) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-          return;
-        }
-        if (!response || response.ok === false) {
-          reject(new Error(response?.error || "Direct media not found."));
-          return;
-        }
-        resolve(response);
-      });
+        if (error) reject(error); else resolve(response);
+      };
+      const timer = setTimeout(() => finish(new Error("Direct media timed out.")), 18000);
+      try {
+        chrome.runtime.sendMessage({ type: "DIRECT_DOWNLOAD", urls, fallbackSourceUrl, folderName: chosenFolder, subFolder: currentNicheFolder(), source: currentSource(), ...options }, (response) => {
+          try {
+            const runtimeError = chrome.runtime.lastError;
+            if (runtimeError) { finish(new Error(runtimeError.message)); return; }
+            if (!response || response.ok === false) { finish(new Error(response?.error || "Direct media not found.")); return; }
+            finish(null, response);
+          } catch (error) { finish(error); }
+        });
+      } catch (error) { finish(error); }
     });
   }
 
@@ -1423,6 +1490,7 @@
           });
           ok = true;
         } catch (e) {
+          if (stopDownloadFallback(e)) throw e;
           console.warn("[rg-redgifs] doğrudan yol başarısız, Copy Link'e düşülüyor:", e && e.message || e);
           ok = false;
         }
@@ -1488,6 +1556,7 @@
           });
           ok = true;
         } catch (e) {
+          if (stopDownloadFallback(e)) throw e;
           console.warn("[rg-redgifs] viewer doğrudan yol başarısız:", e && e.message || e);
         }
       }
@@ -2239,7 +2308,7 @@
     }
   });
 
-  window.addEventListener("message", (event) => {
+  life.listen(window, "message", (event) => {
     if (event.source !== window) return;
     const data = event.data;
     if (!data || data.source !== "RG_RIPSNIP_PAGE_HOOK" || data.type !== "CLIPBOARD_WRITE") return;
@@ -2256,7 +2325,7 @@
 
   // Right Shift → indir
   let shiftDownloading = false;
-  window.addEventListener("keydown", async (event) => {
+  life.listen(window, "keydown", async (event) => {
     if (event.code !== "ShiftRight") return;
     if (!settings.rightShiftDownload) return;
     const tag = document.activeElement && document.activeElement.tagName;
@@ -2322,6 +2391,7 @@
       });
       return;
     } catch (error) {
+      if (stopDownloadFallback(error)) throw error;
       // Direct CDN + slug-API both came up empty (the "url bulunamadı" case a
       // grid card with no live <video> hits). Bring the card into view and let
       // the share-menu Copy-Link path resolve it, exactly like the visible
@@ -2398,7 +2468,10 @@
         expectedSlug: expectedSlugFromMedia(container, item.video, fallbackUrl)
       });
       return;
-    } catch { /* blob/HLS with no derivable slug → Copy Link fallback */ }
+    } catch (error) {
+      if (stopDownloadFallback(error)) throw error;
+      // blob/HLS with no derivable slug → Copy Link fallback
+    }
     const url = await copyCurrentShareLink({ allowViewerVideo: true });
     await sendDirectDownload([], url, {
       allowRipsnipFallback: false,
@@ -2517,10 +2590,10 @@
   loadSettings();
   installUi();
   let installPending = false;
-  const observer = new MutationObserver(() => {
+  const observer = new life.MutationObserver(() => {
     if (installPending || document.hidden) return;
     installPending = true;
-    window.requestAnimationFrame(() => {
+    life.raf(() => {
       installPending = false;
       installUi();
     });
@@ -2532,14 +2605,24 @@
     updateAvatarButton();
   }
   let avatarMovePending = false;
-  document.addEventListener("mousemove", (event) => {
+  life.listen(document, "mousemove", (event) => {
     avatarMouseX = event.clientX;
     avatarMouseY = event.clientY;
     if (avatarMovePending) return;
     avatarMovePending = true;
-    window.requestAnimationFrame(() => { avatarMovePending = false; updateAvatarButton(); });
+    life.raf(() => { avatarMovePending = false; updateAvatarButton(); });
   }, { passive: true, capture: true });
-  window.addEventListener("scroll", () => window.requestAnimationFrame(updateFloatingButtons), { passive: true });
-  window.addEventListener("resize", () => window.requestAnimationFrame(updateFloatingButtons));
-  setInterval(updateFloatingButtons, 700);
+  life.listen(window, "scroll", () => life.raf(updateFloatingButtons), { passive: true });
+  life.listen(window, "resize", () => life.raf(updateFloatingButtons));
+  // Intrinsic video dimensions can arrive/change without inserting DOM nodes.
+  // Capturing these events avoids a corner flash until the next periodic scan.
+  const videoLayoutChanged = event => {
+    if (event.target?.tagName === "VIDEO") updateFloatingButtons();
+  };
+  life.listen(document, "loadedmetadata", videoLayoutChanged, true);
+  life.listen(document, "loadeddata", videoLayoutChanged, true);
+  life.listen(document, "resize", videoLayoutChanged, true);
+  life.listen(document, "fullscreenchange", updateFloatingButtons);
+  life.setInterval(updateFloatingButtons, 700);
+  life.onResume = updateFloatingButtons;
 })();

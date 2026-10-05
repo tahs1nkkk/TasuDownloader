@@ -16,10 +16,23 @@ import { openShare } from "./share.js";
 
 const SITE_ORDER = ["RedGifs", "Reddit", "Instagram", "Scrolller", "Coomer", "Other"];
 const PAGE = 120;
+const MAX_CAT_DEPTH = 5;    // kök = 0; en fazla bu kadar seviye (0..4). Alt-ekle
+                           // düğmesi sınıra gelince gizlenir, backend de kırpar.
+const OVERSCAN_ROWS = 4;    // pencerenin üstünde/altında yedek satır (kaydırırken
+                           // boş kart görülmesin diye)
 
-let shown = 0;
-let sentinel = null;
-let observer = null;
+// DOM geri dönüşümü (windowing): kaydırmayla yalnız görünen kartlar (+ yedek)
+// DOM'da kalır; üstte/altta iki "boşluk" (spacer) çıkarılan kartların yerini
+// piksel olarak tutar, böylece kaydırma çubuğu ve konumu bozulmaz. 15 bin
+// dosyada bile DOM'da birkaç yüz düğüm olur.
+let gridRows = [];          // o an görünen (süzülmüş+sıralı) dizi
+let winFrom = 0;            // DOM'daki ilk kartın indisi
+let winTo = -1;            // DOM'daki son kartın (dışlayan) indisi
+let topPad = null;          // üst boşluk (grid item, tam satır)
+let botPad = null;          // alt boşluk
+let cols = 1;              // ölçülen sütun sayısı
+let unit = 0;              // ölçülen satır yüksekliği (kart + satır boşluğu)
+let ticking = false;        // scroll rAF gaz kelebeği
 
 /* ------------------------------------------------------------------ süzme */
 
@@ -44,7 +57,21 @@ function descendants(catId) {
   return out;
 }
 
+// visible() bir render döngüsünde defalarca çağrılıyor (renderGrid, renderStats,
+// renderSelectBar, her kart tıklaması, pencere her tazelendiğinde). Büyük arşivde
+// her seferinde binlerce öğeyi süzüp sıralamak kaydırmayı boğuyordu. Sonucu
+// filtre imzasına göre önbelleğe alıyoruz; veri (S.media, meta) değişince imza
+// aynı kalabildiği için ayrıca visibleDirty() ile açıkça geçersiz kılınır.
+let visCache = null;
+let visSig = "";
+
+export function visibleDirty() { visCache = null; }
+
 export function visible() {
+  // Ayıraç newline: tek satırlık arama girdisi ile diğer alanlar newline
+  // içeremez → alanlar birbirine karışıp çakışamaz.
+  const sig = [S.query, S.site, S.kind, S.cat, S.sort].join("\n");
+  if (visCache && sig === visSig) return visCache;
   const needle = S.query.toLocaleLowerCase("tr");
   const catSet = S.cat ? descendants(S.cat) : null;
   const rows = S.media.filter((item) => {
@@ -60,7 +87,16 @@ export function visible() {
     big: (a, b) => b.size - a.size,
     name: (a, b) => a.name.localeCompare(b.name, "tr")
   }[S.sort];
-  return rows.sort(by);
+  rows.sort(by);
+  visCache = rows;
+  visSig = sig;
+  return rows;
+}
+
+// Küçük yardımcı: hızlı art arda gelen olayları (arama tuşları) tek çağrıya indirir.
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
 }
 
 /* ------------------------------------------------------------ site sekmeleri */
@@ -85,6 +121,10 @@ function tab(id, label, brand, count) {
 export function renderTabs() {
   const host = $("#site-tabs");
   clear(host);
+  // Site kavramı yalnız ana arşivde ("main") var. Diğer arşivler dışarıdan dosya
+  // yüklemek için; hepsi görünmez "Other" altında toplanır, sekme şeridi gizli.
+  if (S.drive !== "main") { host.hidden = true; return; }
+  host.hidden = false;
   const counts = new Map();
   for (const item of S.media) counts.set(item.site, (counts.get(item.site) || 0) + 1);
 
@@ -154,11 +194,34 @@ async function editCat(cat) {
     return;
   }
   saveMeta();
+  visibleDirty();
   renderCats();
   renderGrid();
 }
 
+// Bir kategorinin köke uzaklığı (kök = 0). Bozuk veriye karşı ziyaret seti ve
+// sert bir tavan var: döngü ya da aşırı derinlik olsa bile takılmaz.
+function catDepth(catId) {
+  let depth = 0;
+  let cur = catId;
+  const seen = new Set();
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    const node = S.meta.cats.find((c) => c.id === cur);
+    if (!node || !node.parent) break;
+    cur = node.parent;
+    depth += 1;
+    if (depth > MAX_CAT_DEPTH + 2) break;
+  }
+  return depth;
+}
+
 async function addCat(parent = null) {
+  // Yeni çocuğun derinliği = ebeveyn derinliği + 1; tavanı aşarsa reddet.
+  if (parent && catDepth(parent) + 1 >= MAX_CAT_DEPTH) {
+    toast("Daha derine alt kategori açılamıyor", "err");
+    return;
+  }
   const name = await promptBox(parent ? "Yeni alt kategori" : "Yeni kategori", "Kategori adı", "",
     parent ? "ör. Albüm 1" : "ör. Favoriler");
   if (!name) return;
@@ -197,27 +260,36 @@ function chip(cat) {
   return { node, kids, open };
 }
 
+// Bir kategoriyi ve (açıksa) tüm alt ağacını özyinelemeli çizer. Her açık düğümün
+// altında çocukları girintili bir şeritte (.cat-kids iç içe geçtikçe girinti
+// derinleşir) ve —derinlik sınırına gelmediyse— o seviyeye bir "+ Alt kategori"
+// düğmesi gelir. Caret zaten her derinlikte çalışıyor (S.openCats).
+function renderBranch(host, cat, depth) {
+  const { node, kids, open } = chip(cat);
+  host.append(node);
+  if (!open) return;
+  const row = el("div", { class: "cat-kids" });
+  for (const kid of kids) renderBranch(row, kid, depth + 1);
+  if (depth + 1 < MAX_CAT_DEPTH) {
+    row.append(el("button", {
+      class: "cat-chip cat-add", type: "button", onclick: () => addCat(cat.id)
+    }, "+ Alt kategori"));
+  }
+  host.append(row);
+}
+
 export function renderCats() {
   const host = $("#cat-bar");
   clear(host);
 
   host.append(el("button", {
     class: `cat-chip${S.cat ? "" : " on"}`, type: "button",
-    style: S.cat ? "" : "background:linear-gradient(115deg,#fbbf24,#ec4899)",
+    style: S.cat ? "" : "background:var(--accent);color:var(--on-accent)",
     onclick: () => { S.cat = ""; renderCats(); renderGrid(); }
   }, "Tümü"));
 
   for (const cat of S.meta.cats.filter((c) => !c.parent && c.drive === S.drive)) {
-    const { node, kids, open } = chip(cat);
-    host.append(node);
-    if (open) {
-      const row = el("div", { class: "cat-kids" });
-      for (const kid of kids) row.append(chip(kid).node);
-      row.append(el("button", {
-        class: "cat-chip cat-add", type: "button", onclick: () => addCat(cat.id)
-      }, "+ Alt kategori"));
-      host.append(row);
-    }
+    renderBranch(host, cat, 0);
   }
 
   host.append(el("button", {
@@ -233,7 +305,8 @@ export function renderCats() {
 // hem de kaydırmayı boğuyordu. "Her açılışta yeniden iniyor" şikâyeti de
 // buradan geliyordu, çünkü tam boy dosyalar tarayıcı önbelleğine sığmıyordu.
 //
-// Kapak yoksa (404) tarayıcı bir kez üretip /api/thumb'a bırakır; ikinci
+// Kapak yoksa sunucu 204 döner (404 değil — konsol temiz kalsın); <img> boş
+// gövdede `error` verir, tarayıcı bir kez üretip /api/thumb'a bırakır; ikinci
 // açılışta doğrudan gelir. Aynı anda en çok iki üretim çalışır.
 const THUMB_EDGE = 480;
 const queue = [];
@@ -262,9 +335,9 @@ async function storeThumb(canvas, key) {
   return blob;
 }
 
-async function videoThumb(key) {
+async function videoThumb(src, key) {
   const video = el("video", { preload: "metadata", muted: true, playsinline: true, crossorigin: "use-credentials" });
-  video.src = mediaURL(key);
+  video.src = src;
   await new Promise((resolve, reject) => {
     const stop = setTimeout(() => reject(new Error("zaman aşımı")), 20000);
     const fail = () => { clearTimeout(stop); reject(new Error("video açılamadı")); };
@@ -285,13 +358,13 @@ async function videoThumb(key) {
   return storeThumb(canvas, key);
 }
 
-async function imageThumb(key) {
+async function imageThumb(src, key) {
   const source = await new Promise((resolve, reject) => {
     const probe = new Image();
     probe.decoding = "async";
     probe.addEventListener("load", () => resolve(probe), { once: true });
     probe.addEventListener("error", () => reject(new Error("görsel açılamadı")), { once: true });
-    probe.src = mediaURL(key);
+    probe.src = src;
   });
 
   const box = fitBox(source.naturalWidth, source.naturalHeight);
@@ -307,7 +380,9 @@ async function imageThumb(key) {
 function wantThumb(item, img) {
   queue.push(async () => {
     try {
-      const blob = item.kind === "video" ? await videoThumb(item.key) : await imageThumb(item.key);
+      const blob = item.kind === "video"
+        ? await videoThumb(mediaURL(item.key), item.key)
+        : await imageThumb(mediaURL(item.key), item.key);
       const url = URL.createObjectURL(blob);
       img.addEventListener("load", () => URL.revokeObjectURL(url), { once: true });
       img.src = url;
@@ -316,6 +391,27 @@ function wantThumb(item, img) {
       // dosyayı göstermek hiç göstermemekten iyi; videoda film şeridi kalsın.
       if (item.kind === "image") img.src = mediaURL(item.key);
       else img.replaceWith(el("div", { class: "fallback" }, "🎞"));
+    }
+  });
+  pump();
+}
+
+// Yükleme anında, yerel File'dan kapak üretir ve /api/thumb'a bırakır. Baytlar
+// zaten elde olduğu için ağdan tekrar indirmek yok; böylece yeni yüklenen
+// dosyalar ilk görüntülemede "tam dosyayı indirip kapak üret" fırtınasını hiç
+// yaşatmaz. En iyi çaba: başarısızsa ilk görüntüleme eski yola (404 → üret)
+// düşer. Kuyruğa alınır ki toplu yüklemede CPU kilitlenmesin.
+export function thumbFromFile(file, key) {
+  const type = file.type || "";
+  const kind = type.startsWith("video/") ? "video" : type.startsWith("image/") ? "image" : "";
+  if (!kind) return;
+  queue.push(async () => {
+    const url = URL.createObjectURL(file);
+    try {
+      if (kind === "video") await videoThumb(url, key);
+      else await imageThumb(url, key);
+    } finally {
+      URL.revokeObjectURL(url);
     }
   });
   pump();
@@ -385,70 +481,125 @@ function renderStats(rows) {
   dock.hidden = false;
 }
 
-// Sonsuz kaydırma yalnız yeni kartları ekler. Eskiden her sayfa dolduğunda
-// ızgara komple silinip baştan çiziliyordu: 1200 dosyada onuncu sayfa 1200 kart
-// demekti, kaydırma her seferinde bir saniye donuyordu.
-function mountSentinel(root, rows) {
-  if (observer) { observer.disconnect(); observer = null; }
-  if (sentinel) { sentinel.remove(); sentinel = null; }
-  if (shown >= rows.length) return;
+// DOM geri dönüşümü. Eskiden sonsuz kaydırma yalnız ekliyordu: 1200 dosyada
+// onuncu sayfa 1200 kart demekti, kaydırma her seferinde donuyordu. Şimdi yalnız
+// görünen kartlar (+ yedek satırlar) DOM'da; üstte/altta iki boşluk (spacer)
+// çıkarılan kartların yerini piksel olarak tutuyor, böylece kaydırma çubuğu ve
+// konum bozulmuyor. Kartlar kare (aspect-ratio:1) olduğundan satır yüksekliği
+// canlı bir karttan birebir ölçülür — sapma birikmez.
+function stageEl() { return $(".stage"); }
 
-  sentinel = el("div", { class: "grid-sentinel" });
-  root.append(sentinel);
-  observer = new IntersectionObserver((entries) => {
-    if (!entries.some((e) => e.isIntersecting)) return;
-    const from = shown;
-    shown = Math.min(rows.length, shown + PAGE);
-    const batch = document.createDocumentFragment();
-    for (let i = from; i < shown; i += 1) batch.append(card(rows[i], i));
-    sentinel.before(batch);
-    mountSentinel(root, rows);
-  }, { rootMargin: "800px" });
-  observer.observe(sentinel);
+// topPad ile botPad arasını temizler ve winFrom..winTo kartlarını basar.
+function fillWindow(root) {
+  let node = topPad.nextSibling;
+  while (node && node !== botPad) { const next = node.nextSibling; node.remove(); node = next; }
+  const frag = document.createDocumentFragment();
+  for (let i = winFrom; i < winTo; i += 1) frag.append(card(gridRows[i], i));
+  botPad.before(frag);
 }
 
-export function renderGrid(keepShown = false) {
-  const root = $("#media-root");
-  const rows = visible();
-  const target = keepShown ? Math.max(PAGE, Math.min(shown, rows.length)) : PAGE;
-  clear(root);
+// Kaydırma konumuna göre görünen pencereyi hesaplar; değiştiyse yalnız o aralığı
+// yeniden çizer ve boşlukları satır cinsinden ayarlar.
+function paintWindow(root, keepIfSame) {
+  const stage = stageEl();
+  if (!stage || !topPad || !botPad) return;
 
-  if (!rows.length) {
-    if (observer) { observer.disconnect(); observer = null; }
-    sentinel = null;
-    shown = 0;
+  const style = getComputedStyle(root);
+  const tracks = style.gridTemplateColumns.split(" ").filter((t) => t && t !== "none");
+  cols = Math.max(1, tracks.length);
+  const gap = parseFloat(style.rowGap) || 12;
+  const live = root.querySelector(".media-card");
+  let cardH = live ? live.getBoundingClientRect().height : 0;
+  if (!cardH) {
+    const inner = root.clientWidth - (cols - 1) * gap;
+    cardH = inner > 0 ? inner / cols : 0;
+  }
+
+  // Görünüm henüz düzenlenmemişse (kapı ekranı açıkken load() çağrılır): boşluksuz
+  // ilk PAGE kartı çiz; görünür olunca ilk gerçek ölçüm pencereyi düzeltir.
+  if (cardH < 1) {
+    if (winTo < 0) {
+      winFrom = 0; winTo = Math.min(gridRows.length, PAGE);
+      topPad.style.height = "0px"; botPad.style.height = "0px";
+      fillWindow(root);
+    }
+    return;
+  }
+  unit = cardH + gap;
+
+  const total = gridRows.length;
+  const totalRows = Math.ceil(total / cols);
+  const rootTop = root.getBoundingClientRect().top - stage.getBoundingClientRect().top + stage.scrollTop;
+  const viewTop = stage.scrollTop - rootTop;
+  let firstRow = Math.floor(viewTop / unit) - OVERSCAN_ROWS;
+  let lastRow = Math.ceil((viewTop + stage.clientHeight) / unit) + OVERSCAN_ROWS;
+  firstRow = Math.max(0, firstRow);
+  lastRow = Math.min(totalRows, Math.max(firstRow + 1, lastRow));
+
+  const from = firstRow * cols;
+  const to = Math.min(total, lastRow * cols);
+  if (keepIfSame && from === winFrom && to === winTo) return;
+  winFrom = from; winTo = to;
+
+  topPad.style.height = `${firstRow * unit}px`;
+  botPad.style.height = `${Math.max(0, totalRows - lastRow) * unit}px`;
+  fillWindow(root);
+}
+
+// Tek kaydırma/yeniden-boyut dinleyicisinden çağrılır (wire'da rAF ile gazlanır).
+function syncWindow() {
+  const root = $("#media-root");
+  if (!topPad || !botPad || !root || S.view !== "media" || !gridRows.length) return;
+  paintWindow(root, true);
+}
+
+export function renderGrid(keepPos = false) {
+  const root = $("#media-root");
+  gridRows = visible();
+  clear(root);
+  winFrom = 0; winTo = -1;
+
+  if (!gridRows.length) {
+    topPad = null; botPad = null;
     root.append(el("div", { class: "empty" },
       el("b", {}, S.media.length ? "Bu süzgeçte dosya yok" : "Arşiv boş"),
       S.media.length ? "Site sekmesini ya da aramayı değiştir." : "Telefondan indirdiklerin buraya düşer."));
-    renderStats(rows);
+    renderStats(gridRows);
     return;
   }
 
-  shown = Math.min(rows.length, target);
-  const batch = document.createDocumentFragment();
-  for (let i = 0; i < shown; i += 1) batch.append(card(rows[i], i));
-  root.append(batch);
-  mountSentinel(root, rows);
+  // Boşluklar birer grid item (tam satır); aralarındaki kartlar da grid akışında.
+  topPad = el("div", { class: "grid-pad" });
+  botPad = el("div", { class: "grid-pad" });
+  root.append(topPad, botPad);
+  if (!keepPos) stageEl().scrollTop = 0;
 
-  renderStats(rows);
+  paintWindow(root, false);
+  // İlk boyama tahminle başlamış olabilir (henüz canlı kart yok); bir sonraki
+  // kare gerçek ölçümle pencereyi düzeltsin.
+  requestAnimationFrame(() => { if (gridRows.length && S.view === "media") paintWindow(root, false); });
+
+  renderStats(gridRows);
 }
 
 /* -------------------------------------------------------- silme / güncelleme */
 
-// Görüntüleyici bir dosyayı sildiğinde ızgarayı yerinde günceller.
+// Görüntüleyici ya da toplu silme bir dosyayı kaldırdığında ızgarayı yerinde
+// günceller: ekranda görünen silinen kartlar yerinde erir, animasyon bitince
+// pencere taze listeden yeniden kurulur (windowing'de indisler kaydığı için).
 function onDeleted(keys) {
   const gone = new Set(keys);
   S.media = S.media.filter((item) => !gone.has(item.key));
   for (const key of gone) { delete S.meta.items[key]; S.picked.delete(key); }
+  visibleDirty();
+
+  let melting = false;
   for (const node of $$("#media-root .media-card")) {
-    if (gone.has(node.dataset.key)) {
-      node.classList.add("leaving");
-      setTimeout(() => node.remove(), 300);
-      // Gösterilen kart sayısı da düşmeli: düşmezse sonsuz kaydırma bir sonraki
-      // sayfayı kaydırılmış indislerden başlatıyor ve arada dosya atlanıyordu.
-      shown = Math.max(0, shown - 1);
-    }
+    if (gone.has(node.dataset.key)) { node.classList.add("leaving"); melting = true; }
   }
+  const refresh = () => { if (S.view === "media") renderGrid(true); };
+  if (melting) setTimeout(refresh, 300); else refresh();
+
   renderTabs();
   // Seçili son dosya da gittiyse alttaki eylem çubuğu kapanmalı; eskiden
   // ekranda asılı kalıyordu (renderStats'ı da bu çağrı yeniliyor).
@@ -471,6 +622,9 @@ export function renderSelectBar() {
   const active = S.picked.size > 0;
   S.selecting = active;
   bar.hidden = !active;
+  // "Siteye taşı" yalnız ana arşivde anlamlı; diğer arşivlerde site yok, gizle.
+  const siteBtn = bar.querySelector('[data-act="site"]');
+  if (siteBtn) siteBtn.hidden = S.drive !== "main";
   document.body.classList.toggle("selecting", active);
   $("#sel-count").textContent = `${S.picked.size} seçildi`;
   renderStats(visible());
@@ -485,14 +639,16 @@ async function pickCategory(title) {
       const tree = el("div", { class: "tree" });
       tree.append(el("button", { type: "button", onclick: () => close({ id: "" }) },
         el("span", { class: "cat-swatch", style: "background:#6b7280" }), "Kategorisiz"));
-      for (const cat of cats.filter((c) => !c.parent)) {
-        tree.append(el("button", { type: "button", onclick: () => close({ id: cat.id }) },
-          el("span", { class: "cat-swatch", style: `background:${cat.color}` }), cat.name));
-        for (const kid of cats.filter((c) => c.parent === cat.id)) {
-          tree.append(el("button", { type: "button", class: "child", onclick: () => close({ id: kid.id }) },
-            el("span", { class: "cat-swatch", style: `background:${kid.color}` }), kid.name));
-        }
-      }
+      // Tüm ağacı derinliğe göre girintili göster; her seviyeden kategori seçilebilir.
+      const addBranch = (cat, depth) => {
+        tree.append(el("button", {
+          type: "button", style: depth ? `padding-left:${12 + depth * 18}px` : "",
+          onclick: () => close({ id: cat.id })
+        }, el("span", { class: "cat-swatch", style: `background:${cat.color}` }), cat.name));
+        if (depth > MAX_CAT_DEPTH) return;
+        for (const kid of cats.filter((c) => c.parent === cat.id)) addBranch(kid, depth + 1);
+      };
+      for (const cat of cats.filter((c) => !c.parent)) addBranch(cat, 0);
       box.append(tree);
     },
     buttons: [{ label: "Vazgeç", value: null }]
@@ -564,6 +720,7 @@ async function bulk(action) {
       if (!Object.keys(entry).length) delete S.meta.items[key];
     }
     saveMeta();
+    visibleDirty();
     renderCats();
     renderGrid();
     toast(`${keys.length} dosya taşındı`, "ok");
@@ -588,6 +745,7 @@ async function bulk(action) {
         item.site = site;
       }
       saveMeta();
+      visibleDirty();
       S.picked.clear();
       renderTabs(); renderSelectBar(); renderGrid();
       toast(`${Object.keys(moved).length} dosya taşındı`, "ok");
@@ -609,6 +767,7 @@ export async function load() {
     toast(`Medya alınamadı: ${error.message}`, "err");
     S.media = [];
   }
+  visibleDirty();
   renderTabs();
   renderCats();
   renderGrid();
@@ -624,7 +783,20 @@ const SORTS = [
 
 export function wire() {
   const search = $("#media-search");
-  search.addEventListener("input", () => { S.query = search.value.trim(); renderGrid(); });
+  // Her tuşta tüm ızgarayı yıkıp kurmak en belirgin jank'ti. S.query anında
+  // güncellenir (süzme/küçük-harf için) ama yeniden çizim ~160ms geciktirilir.
+  const runSearch = debounce(() => renderGrid(), 160);
+  search.addEventListener("input", () => { S.query = search.value.trim(); runSearch(); });
+
+  // Windowing: tek kaydırma dinleyicisi, rAF ile gazlanır. Görünen pencereyi
+  // kaydırma konumuna göre tazeler; yalnız medya görünümünde ve ızgara kuruluyken
+  // iş yapar (aksi halde erken çıkar).
+  stageEl().addEventListener("scroll", () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => { ticking = false; syncWindow(); });
+  }, { passive: true });
+  window.addEventListener("resize", () => syncWindow());
 
   const sort = $("#media-sort");
   const paintSort = () => {

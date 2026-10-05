@@ -1,3 +1,5 @@
+// Generated from shared/ui/folders.js; run npm run build:shared. Do not edit.
+// Shared source; platform packages are generated from this file.
 // Shared folder chooser — injected before every site content script.
 // Exposes window.rgChooseFolder(): shows a small menu at the cursor listing the
 // user's custom folders and resolves to the chosen folder name.

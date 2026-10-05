@@ -1,126 +1,137 @@
-# Builds the unsigned TasuDownloader .ipa on a free macOS runner. The artifact is
-# what SideStore/AltStore installs on the phone; no Mac or paid account needed.
+# Keep this workflow's path/name so the iOS run-number sequence is retained.
+# This now prepares coordinated artifacts. It never publishes a release.
 name: iOS App
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: Platforms to prepare (build only, no publication)
+        type: choice
+        default: all
+        options: [all, edge, ios, orion]
   push:
     paths:
-      - "ios-app/**"
+      - "shared/**"
       - "edge-extension/**"
-      - "scripts/build-ios-app-js.js"
-      - ".github/workflows/build-ios-app.yml"
+      - "ios-app/**"
+      - "orion-ios/**"
+      - "cloud/**"
+      - "scripts/**"
+      - "tests/**"
+      - "package*.json"
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-clients-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: macos-15
-    # The rolling release below needs write access; artifact upload alone
-    # would not.
-    permissions:
-      contents: write
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      has_targets: ${{ steps.plan.outputs.has_targets }}
+      ios: ${{ steps.plan.outputs.ios }}
+      extension_targets: ${{ steps.plan.outputs.extension_targets }}
     steps:
       - uses: actions/checkout@v4
-
-      # macos-15 ships several Xcodes and defaults to 16.4, whose SDK has no
-      # Liquid Glass. The UI is written against iOS 26 APIs behind availability
-      # checks, so without this the app still builds — it just silently falls
-      # back to the pre-26 look everywhere. Pick the newest installed Xcode
-      # rather than pinning a version the runner image may drop.
-      - name: Select newest Xcode
-        run: |
-          newest=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
-          echo "Using $newest"
-          sudo xcode-select -s "$newest"
-          xcodebuild -version
-          xcodebuild -showsdks | grep -i ios
-
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-
-      - name: Assemble injected JS payload
-        run: node scripts/build-ios-app-js.js
-
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Generate Xcode project
-        run: |
-          mkdir -p ios-app/Generated
-          xcodegen generate --spec ios-app/project.yml --project ios-app
-
-      - name: Build (unsigned)
-        run: |
-          set -o pipefail
-          xcodebuild \
-            -project ios-app/TasuDownloader.xcodeproj \
-            -scheme TasuDownloader \
-            -configuration Release \
-            -destination "generic/platform=iOS" \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            build 2>&1 | tee build.log
-
-      # Full logs need a login to read; annotations do not. Surfacing compiler
-      # errors as annotations lets failures be diagnosed from the public API.
-      - name: Surface compile errors as annotations
-        if: failure()
-        run: |
-          grep -E "error: " build.log | sort -u | head -40 | while IFS= read -r line; do
-            echo "::error::${line}"
-          done
-
-      - name: Package .ipa
-        run: |
-          mkdir -p dist Payload
-          cp -R "build/Build/Products/Release-iphoneos/TasuDownloader.app" Payload/
-          zip -qry "dist/TasuDownloader.ipa" Payload
-
+          cache: npm
+      - run: npm ci
+      - id: plan
+        run: node scripts/plan-ci-release.js
       - uses: actions/upload-artifact@v4
         with:
-          name: TasuDownloader-ipa
-          path: dist/TasuDownloader.ipa
+          name: release-plan
+          path: dist/release-plan.json
+          if-no-files-found: error
           retention-days: 14
 
-      # Artifacts need a GitHub login to download; a release asset does not.
-      # A rolling "latest" release keeps one stable URL the phone's browser
-      # can fetch directly:
-      #   https://github.com/<owner>/<repo>/releases/download/latest/TasuDownloader.ipa
-      - name: Publish rolling release
+  checks:
+    needs: plan
+    if: needs.plan.outputs.has_targets == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - run: npm run test:edge
+
+  extensions:
+    needs: [plan, checks]
+    if: needs.plan.outputs.extension_targets != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Prepare requested extension packages
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release view latest >/dev/null 2>&1 || \
-            gh release create latest --title "TasuDownloader (latest)" \
-              --notes "Her push'ta güncellenen son derleme."
+          TARGETS: ${{ needs.plan.outputs.extension_targets }}
+        run: node scripts/prepare-client-packages.js --targets "$TARGETS" --out dist/client-packages
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-extensions
+          path: |
+            dist/client-packages/*.zip
+            dist/client-packages/*.xpi
+            dist/client-packages/*.receipt.json
+          if-no-files-found: error
+          retention-days: 14
 
-          # The release is created once and then only ever uploaded to, so it
-          # kept the old product name and an .ipa from before the rename —
-          # a stale build sitting on a URL that claims to be current. Reconcile
-          # every run instead of only at creation, and drop anything that is
-          # not the build this run just produced.
-          gh release edit latest --title "TasuDownloader (latest)"
-          gh release view latest --json assets --jq '.assets[].name' \
-            | grep -vxE "TasuDownloader\.ipa|apps\.json" \
-            | while read -r stale; do
-                echo "Eski varlık siliniyor: $stale"
-                gh release delete-asset latest "$stale" --yes
-              done
+  ios:
+    needs: [plan, checks]
+    if: needs.plan.outputs.ios == 'true'
+    uses: ./.github/workflows/native-ios.yml
+    with:
+      build_number: ${{ format('{0}', github.run_number) }}
 
-          gh release upload latest dist/TasuDownloader.ipa --clobber
-
-          # SideStore/AltStore kaynağı: telefonda tek bir URL ekleyince her yeni
-          # derleme otomatik "güncelleme" olarak görünür — .ipa'yı elle bulmaya
-          # gerek kalmaz. Sürüm run numarasından türetiliyor ki SideStore
-          # güncellemeyi algılasın; boyut gerçek dosyadan hesaplanıyor.
-          export REPO="${{ github.repository }}"
-          export APP_VERSION="1.0.${{ github.run_number }}"
-          export APP_DATE="$(date -u +%Y-%m-%d)"
-          export IPA_SIZE="$(stat -f%z dist/TasuDownloader.ipa)"
-          # sha256 bilerek boş: `latest` release her derlemede clobber'landığı
-          # için kısa CDN önbellek penceresinde hash uyuşmazlığı SideStore
-          # kurulumunu düşürebilir. Sürümlü release'e geçilirse eklenebilir.
-          node scripts/make-ios-source.js
-          gh release upload latest dist/apps.json --clobber
+  assemble:
+    needs: [plan, checks, extensions, ios]
+    if: >-
+      ${{ always() && needs.plan.result == 'success' && needs.checks.result == 'success' &&
+          (needs.extensions.result == 'success' || needs.extensions.result == 'skipped') &&
+          (needs.ios.result == 'success' || needs.ios.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    env:
+      TASU_BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: client-*
+          path: dist/prepared-release
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-plan
+          path: dist/prepared-release
+      - name: Reject missing, mixed-version or damaged packages
+        run: node scripts/verify-release-bundle.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TasuDownloader-prepared-release
+          path: dist/prepared-release/*
+          if-no-files-found: error
+          retention-days: 14

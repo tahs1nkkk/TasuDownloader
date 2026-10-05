@@ -1,4 +1,5 @@
-importScripts("common/settings.js", "common/cloud.js", "common/scrolller-resolve.js");
+importScripts("common/sites.js", "common/settings.js", "common/media-rules.js", "common/download-contract.js", "common/cloud.js", "common/scrolller-resolve.js", "common/archive-access.js", "common/download-feedback.js");
+importScripts("hub/catalog.js", "hub/store.js", "hub/windows.js", "hub/roblox/network.js", "hub/roblox/i18n.js", "hub/roblox/worker.js", "hub/music-worker.js", "hub/music-diagnostics.js", "hub/worker.js");
 
 const RIPSNIP_URL = "https://ripsnip.com/";
 const MEDIA_RE = /\.(mp4|webm|mov|m4v)(?:[?#].*)?$/i;
@@ -115,7 +116,7 @@ function bestPerMedia(urls) {
 
 function notify(tabId, message) {
   if (!tabId) return;
-  chrome.tabs.sendMessage(tabId, message).catch(() => {});
+  chrome.tabs.sendMessage(tabId, message, { frameId: 0 }).catch(() => {});
 }
 
 function cleanFileName(value) {
@@ -149,17 +150,7 @@ function filenameFor(url, settings = DEFAULT_SETTINGS, folderName = "", download
     label = "redgifs-video";
   }
   label = label.replace(/\.(mp4|webm|mov|m4v|ts|m4s|jpg|jpeg|png|webp|gif)$/i, "");
-  // Drop a trailing variant/resolution tag so files are `<slug>` not
-  // `<slug>-large` (RedGifs) or `<slug>_1920x1080` (Scrolller). Mirrors
-  // MediaNaming.stripVariantSuffix on the iOS side.
-  let previous;
-  do {
-    previous = label;
-    label = label
-      .replace(/[-_](?:small|mobile|mini|thumbnail|thumb|preview|poster|sd|hd|medium|large)$/i, "")
-      .replace(/[-_]\d{2,5}x\d{2,5}$/i, "")
-      .replace(/[-_]\d{3,4}p$/i, "");
-  } while (label !== previous && label);
+  label = globalThis.RG_MEDIA.stripVariantSuffix(label);
   if (!label) label = "media";
   if (settings.includeDateInFilename) {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -184,7 +175,7 @@ function readSettings() {
 }
 
 // Diske indirme — eski davranış, tek başına bir Promise'e sarıldı.
-function localDownload(url, filename) {
+function localDownload(url, filename, sourceTabId) {
   return new Promise((resolve, reject) => {
     chrome.downloads.download(
       { url, filename, conflictAction: "uniquify", saveAs: false },
@@ -193,6 +184,7 @@ function localDownload(url, filename) {
           reject(new Error(`${chrome.runtime.lastError.message} (${filename})`));
           return;
         }
+        globalThis.RG_DOWNLOAD_FEEDBACK?.watch(downloadId, sourceTabId);
         resolve(downloadId);
       }
     );
@@ -360,7 +352,7 @@ async function downloadToFile(url, sourceTabId, folderName = "", downloadPath = 
   const source = (options.source || "").toString();
 
   if (wantLocal) {
-    result.downloadId = await localDownload(url, filename);
+    result.downloadId = await localDownload(url, filename, sourceTabId);
   }
 
   if (wantCloud) {
@@ -786,7 +778,9 @@ async function resolveMediaViaRedgifs(sourceUrl) {
   }
 }
 
+const archiveAccess = globalThis.RG_ARCHIVE.create(chrome, { readSettings, filenameFor, watchDownload: globalThis.RG_DOWNLOAD_FEEDBACK.watch });
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (archiveAccess.handle(message, sender, sendResponse)) return true;
   if (message.type === "OPEN_TAB") {
     chrome.tabs.create({ url: message.url });
     return;
@@ -800,6 +794,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "DIRECT_DOWNLOAD") {
+    const checked = globalThis.RG_DOWNLOAD.validate(message);
+    if (!checked.ok) { sendResponse(checked); return false; }
+    message = checked.message;
     const sourceTabId = sender.tab && sender.tab.id;
     const folderName = message.folderName || "";
     const downloadPath = message.downloadPath || "";
@@ -1104,7 +1101,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (!/^blob:/i.test(blobUrl)) { sendResponse({ ok: false, error: "OF10: geçersiz blob URL" }); return; }
         const settings = await readSettings();
         const filename = filenameFor(namingUrl, settings, folderName, "", "", "OnlyFans");
-        const downloadId = await localDownload(blobUrl, filename);
+        const downloadId = await localDownload(blobUrl, filename, sourceTabId);
         notify(sourceTabId, { type: "RG_HELPER_STATUS", level: "done", text: `Download started (#${downloadId}).` });
         sendResponse({ ok: true, downloadId, filename });
       } catch (e) {

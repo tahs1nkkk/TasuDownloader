@@ -88,6 +88,27 @@ export function sanitizeMeta(input) {
   for (const cat of base.cats) {
     if (cat.parent && (cat.parent === cat.id || !seenCats.has(cat.parent))) cat.parent = null;
   }
+  // Uzun döngü (A→B→C→A) ve aşırı derinlik de ağacı bozar: her kategorinin
+  // ebeveyn zincirini yürü, kök=0 sayıldığında en fazla MAX_CAT_DEPTH ata olsun
+  // (arayüzdeki sınırla aynı). Döngüye ya da fazlalığa denk gelen bağı kesip o
+  // düğümü köke çekeriz — istemci zaten üretemez, bu son savunma hattı.
+  const MAX_CAT_DEPTH = 4;
+  const catById = new Map(base.cats.map((c) => [c.id, c]));
+  for (const cat of base.cats) {
+    const path = new Set([cat.id]);
+    let cur = cat;
+    let depth = 0;
+    while (cur.parent) {
+      const parent = catById.get(cur.parent);
+      if (!parent || path.has(parent.id) || depth >= MAX_CAT_DEPTH) {
+        cur.parent = null;
+        break;
+      }
+      path.add(parent.id);
+      cur = parent;
+      depth += 1;
+    }
+  }
 
   const items = input.items && typeof input.items === "object" ? input.items : {};
   base.items = {};

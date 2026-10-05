@@ -1,4 +1,4 @@
-# Parite haritası — hangi kod hangi kodun karşılığı (2026-08-09)
+# Parite haritası — hangi kod hangi kodun karşılığı (2026-09-05)
 
 Bu depoda aynı iş birden fazla yerde yazılı. Bir kısmı derleme sırasında
 kopyalanıyor (o taraf kendiliğinden eşit kalıyor), bir kısmı ise **elle** eşit
@@ -15,26 +15,27 @@ bak.**
 
 ## 1. Kopyalanan kod — dokunma, kaynağı düzelt
 
-`edge-extension/` altındaki site betikleri tek kaynak. İki derleme betiği onları
-olduğu gibi başka yerlere taşıyor:
+`shared/` altındaki dosyalar artık tek kaynak; ayrıntılar `shared/README.md` içinde.
+`shared/core/sites.js`, platform desteği ve site kapsamı için ortak katalogdur.
 
-- `scripts/build-ios-app-js.js` → iOS uygulaması
-  Aldığı dosyalar: `content-folders.js`, `content-redgifs.js`,
-  `content-reddit.js`, `content-scrolller-v2.js`, `content-coomer.js`,
-  `content-instagram.js`, `common/settings.js`, `page-hook-redgifs.js`.
-  `ios-app/native-bridge.js` ile birleştirip `rg-core.js` / `rg-handlers.js` /
-  `rg-page-hook.js` üretiyor, her birine `node --check` uyguluyor.
+- `npm run build:shared` → Edge'in mevcut klasörüne çalışma dosyalarını üretir;
+  Edge/Orion manifestlerinin site bölümlerini aynı katalogdan günceller.
+- `scripts/build-ios-app-js.js` → betikleri doğrudan `shared/` kaynağından alır,
+  native köprüyle paketler. Ana ekran listesi de aynı katalogdan üretilir.
+- `scripts/build-orion-ios.js` → yine doğrudan `shared/` kaynağını kullanır;
+  katalogdan üretilen manifestteki bağımlılıkları pakete koyar.
+- `npm test` → üretilen Edge dosyalarının kaynakla eşitliğini, yükleme sırasını,
+  native JS paketini ve Orion MV2/MV3 içeriklerini kontrol eder.
 
-- `scripts/build-orion-ios.js` → Orion (iOS tarayıcı uzantısı)
-  Aynı site betiklerini değiştirmeden kopyalıyor. **Hangi dosyaların
-  kopyalanacağını manifest belirliyor:** betik `orion-ios/manifest.mv3.json` ve
-  `manifest.mv2.json` içindeki `content_scripts` / `web_accessible_resources`
-  listelerini okuyor. Yeni bir ortak modül (`common/…`) eklerken iki manifeste
-  birden yazılmazsa dosya pakete hiç girmez ve hata da vermez — Orion'da
-  `globalThis.RG_…` sessizce `undefined` olur.
+**Kural:** `shared/` kaynağını düzenle, çıktıları yeniden üret. Edge içindeki
+üretilmiş kopyaları elle değiştirme. OnlyFans yalnız Edge'de etkin; Android henüz
+planlı.
 
-**Sonuç:** bir site betiğinde yapılan düzeltme üç ürüne birden gider. Kopyayı
-düzenleme; `edge-extension/` içindeki asıl dosyayı düzelt.
+Scrolller HTML ayrıştırması ve dosya adındaki kalite eklerini temizleme artık
+`shared/core/media-rules.js` içinde tek yazım. iOS, `SharedCore.swift` üzerinden
+paketlenmiş kodu JavaScriptCore ile çalıştırıyor; ağ isteği URLSession'da kalıyor.
+Site adı da ortak katalogdan geliyor. Node ve macOS için aynı yerel test verileri
+`tests/fixtures/shared-core.json` dosyasında. Aşağıdaki çiftler hâlâ ayrı yazımlar.
 
 ---
 
@@ -44,7 +45,6 @@ düzenleme; `edge-extension/` içindeki asıl dosyayı düzelt.
 |---|---|---|---|
 | Bağlantı karşılaştırma | `SiteListStore.canonical` | `background.js` → `canonicalLinkUrl` | — |
 | Avatar kimliği | `AvatarIdentity.key(forURL:)` — `Lists/LinkLabel.swift:170` | — | `public/js/core.js` → `avatarId` |
-| Scrolller içerik sayfası çözümü | `MediaResolver.scrolllerMediaURLs(fromHTML:)` | `common/scrolller-resolve.js` → `RG_SCROLLLER.resolveMediaViaScrolller` (background.js **ve** orion-ios paylaşıyor) | — |
 | RedGifs çözümü | `MediaResolver`: `redgifsSlug` + `temporaryToken` + `redgifsMediaURLs` | `background.js`: `redgifsSlugFromUrl` + `redgifsTemporaryToken` + `mediaUrlsFromJson` + `resolveMediaViaRedgifs` | — |
 | İndirme sırası (hangi adres önce denenir) | `Downloader.swift` → `runRound` ve öncesindeki çözüm adımı | `background.js` → `DIRECT_DOWNLOAD` işleyicisi | — |
 | Hız basamakları | `SettingsScreen.bwSteps` | — | `public/js/app.js` → `BW_STEPS` |
@@ -78,9 +78,12 @@ Site betikleri tek bir mesaj gönderiyor; onu **üç ayrı yer** okuyor:
 2. `ios-app/native-bridge.js` → Swift `Downloads/Downloader.swift`
 3. `orion-ios/ios-bridge.js` — iOS'taki Orion uzantısı
 
-Anahtarlar string olduğu için hiçbir araç bu bağı göremez: gönderen tarafta
-`scrolllerSourceUrl:`, alan tarafta `message["scrolllerSourceUrl"]`. Yanlış
-yazım derleme hatası değil, sessiz `nil`.
+Alanlar, türler ve varsayılanlar artık `shared/core/download-contract.js` içinde.
+Edge/Orion alıcıları ve native köprü aynı doğrulamayı kullanıyor. Native Swift
+tarafında `DownloadRequest.swift` bu şemadan üretiliyor; eksik/eski alanların
+varsayılanları yine aynı ortak koddan geliyor. Yanlış türler ve desteklenmeyen
+sözleşme sürümleri indirme başlamadan reddediliyor. Bilinmeyen ek alanlar ileri
+uyumluluk için korunuyor; alan adı değişiklikleri yine test gerektirir.
 
 | Anahtar | Ne demek | background.js | Swift | orion-ios |
 |---|---|---|---|---|
@@ -116,11 +119,9 @@ sayfasını çözme adımı `background.js`'te toplu indirmede de çalışıyor;
 böyle bir süzgeç yok — orada çözülen adresleri eklemek aynı medyayı ikilerdi.
 Bu adımı değiştirirken üç tarafın süzgeci de düşünülmeli.
 
-**Orion dosya adında tür ekini kırpmıyor.** `background.js` → `filenameFor` ve
-Swift `MediaNaming.stripVariantSuffix` sondaki `-large`, `_1920x1080`, `-1080p`
-gibi türev etiketlerini atıyor; `orion-ios/ios-bridge.js` → `fileNameFor`
-atmıyor. Sonuç aynı medyanın Orion'da `slug-1080p.mp4`, diğer ikisinde
-`slug.mp4` adıyla kaydedilmesi. Zararsız ama parite bozuk.
+**Dosya adı kalite ekleri eşitlendi.** Edge, Orion ve Swift artık aynı
+`stripVariantSuffix` kuralını kullanıyor. MIME/uzantı desteği ve işletim sistemine
+kaydetme işlemleri platforma özel; tüm dosya adlandırma kodu ortaklaştırılmış değil.
 
 **Reddit çözücüsü yalnız iOS'ta var.** `MediaResolver.reddit(permalink:)` +
 `redditMediaURLs` Reddit'in `<permalink>.json` ucunu okuyor. Uzantı tarafında
@@ -135,6 +136,12 @@ buluttan okuyup üstüne yazıyor. İkisi aynı anda yazarsa uzantının yazım�
 telefonun birleştirmesini ezebilir. Pratikte nadir, ama liste kaybı raporu
 gelirse ilk bakılacak yer burası.
 
+Edge 0.27.0 hızlı galeri silmeleri artık güncel snapshot'ı tekrar okur, liste
+değişikliklerine `updatedAt` ve liste silmelerine `{id, deletedAt}` yazar.
+Bu düzeltme tam atomik eşitleme değildir. Tam liste/kategori/paylaşım yönetimi
+artık mobil Arşiv sekmesiyle aynı web istemcisine açılır; özellik haritası
+`edge-mobile-support.md` içindedir.
+
 ---
 
 ## 5. Worker API — üç istemcili tek yüzey
@@ -148,8 +155,10 @@ Kim neyi kullanıyor:
 
 - **Swift `CloudClient`** — media (list/upload/delete/stream), thumb, avatar,
   meta, `auth/app`. Uygulamanın arşiv sekmesi `auth/app` üzerinden giriyor.
-- **Uzantı `common/cloud.js`** — yalnız `api/media` ve `api/lists`. Avatar,
-  thumb ve meta uçlarına hiç dokunmuyor.
+- **Uzantı `common/cloud.js`** — media/lists API, bağlantı kontrolü ve kapak
+  adresleri. `common/archive-access.js`, `/auth/app` için sekmeye özel geçici
+  Authorization kuralı ekler. Tam arşiv açıldığında avatar/meta/share gibi
+  özellikleri mevcut web istemcisi kullanır; bunların Edge kopyası oluşturulmaz.
 - **Web `public/js/*`** — hepsi, çerez oturumuyla.
 
 Bir ucun cevap şeklini değiştirirsen üçünü de gözden geçir. `CloudFile`

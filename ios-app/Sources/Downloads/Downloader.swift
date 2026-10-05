@@ -112,15 +112,20 @@ final class Downloader: NSObject, ObservableObject {
         userAgent: String,
         records: DownloadRecordStore
     ) async -> [String: Any] {
-        await withSerialQueue {
-            await self.processDirectDownload(
-                message, pageURL: pageURL, cookies: cookies, userAgent: userAgent, records: records
-            )
+        do {
+            let request = try DownloadRequest.parse(message)
+            return await withSerialQueue {
+                await self.processDirectDownload(
+                    request, pageURL: pageURL, cookies: cookies, userAgent: userAgent, records: records
+                )
+            }
+        } catch {
+            return ["ok": false, "error": error.localizedDescription]
         }
     }
 
     private func processDirectDownload(
-        _ message: [String: Any],
+        _ request: DownloadRequest,
         pageURL: URL?,
         cookies: [HTTPCookie],
         userAgent: String,
@@ -130,7 +135,7 @@ final class Downloader: NSObject, ObservableObject {
             return ["ok": false, "error": "IOS04: indirme iptal edildi"]
         }
 
-        let rawUrls = (message["urls"] as? [Any] ?? []).compactMap { $0 as? String }
+        let rawUrls = request.urls
         var seen = Set<String>()
         var urls = rawUrls.filter { $0.lowercased().hasPrefix("http") && seen.insert($0).inserted }
 
@@ -146,17 +151,17 @@ final class Downloader: NSObject, ObservableObject {
         // Scrolller ayrıca tutuluyor: `scrolllerSourceUrl` seçilen medyanın KENDİ
         // içerik sayfası, `fallbackSourceUrl` ise yalnız adres çubuğu (bkz.
         // native-bridge.js `grab`). Aşağıdaki "önce çöz" adımı bu ayrıma dayanıyor.
-        let scrolllerSource = (message["scrolllerSourceUrl"] as? String) ?? ""
+        let scrolllerSource = request.scrolllerSourceUrl
         let explicitSource = [
-            message["fallbackSourceUrl"] as? String,
+            request.fallbackSourceUrl,
             scrolllerSource
-        ].compactMap { $0 }.first { !$0.isEmpty } ?? ""
+        ].first { !$0.isEmpty } ?? ""
         let sourceUrl = explicitSource.isEmpty ? (pageURL?.absoluteString ?? "") : explicitSource
 
         let cookieHeader = HTTPCookie.requestHeaderFields(with: cookies)["Cookie"] ?? ""
 
-        let wantImage = message["imageMode"] as? Bool ?? false
-        let downloadAll = message["downloadAll"] as? Bool ?? false
+        let wantImage = request.imageMode
+        let downloadAll = request.downloadAll
 
         // Sayfa indirilebilir adres veremediğinde elde yalnız kalıcı bağlantı
         // kalır (RedGifs tam ekran/akış blob ile oynatılır, Reddit gömülüsü de
@@ -200,10 +205,12 @@ final class Downloader: NSObject, ObservableObject {
             return ["ok": false, "error": "IOS01: indirilecek URL yok"]
         }
 
-        let fallbackOnNoTransfer = message["fallbackOnNoTransfer"] as? Bool ?? false
-        let transferTimeoutMs = message["transferTimeoutMs"] as? Double ?? 2500
-        let namingUrl = message["namingUrl"] as? String
-        let site = MediaNaming.site(for: sourceUrl.isEmpty ? (urls.first ?? "") : sourceUrl)
+        let fallbackOnNoTransfer = request.fallbackOnNoTransfer
+        let transferTimeoutMs = request.transferTimeoutMs
+        let namingUrl = request.namingUrl
+        let site = request.site.isEmpty
+            ? MediaNaming.site(for: sourceUrl.isEmpty ? (urls.first ?? "") : sourceUrl)
+            : request.site
 
         var errors: [String] = []
         var tried: [String] = []

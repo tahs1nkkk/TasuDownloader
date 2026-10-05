@@ -3,6 +3,27 @@ const { SETTINGS_KEY, DEFAULT_SETTINGS } = globalThis.RG_SETTINGS;
 const controls = [...document.querySelectorAll("[data-setting]")];
 const buttonSizeValue = document.getElementById("buttonSizeValue");
 const folderStatus = document.getElementById("folderStatus");
+let pendingWrites = Promise.resolve();
+
+// Serialize read/modify/write operations so quick changes do not overwrite
+// another control. Never re-render the whole form while the user is typing.
+function changeSettings(change) {
+  const next = pendingWrites.then(async () => {
+    const current = await readSettings();
+    change(current);
+    await writeSettings(current);
+    return current;
+  });
+  pendingWrites = next.catch(() => {});
+  return next;
+}
+
+function showSettingsError() {
+  if (globalThis.RG_UI) { globalThis.RG_UI.toast("Ayar kaydedilemedi. Lütfen yeniden dene.", "error"); return; }
+  const status = document.getElementById("popupStatus");
+  status.textContent = "Ayar kaydedilemedi. Lütfen yeniden dene.";
+  status.hidden = false;
+}
 
 function readSettings() {
   return new Promise((resolve) => {
@@ -19,6 +40,8 @@ function writeSettings(settings) {
 }
 
 function activeTab() {
+  const source = new URLSearchParams(location.search).get("tasuTab");
+  if (/^\d+$/.test(source||"")) return chrome.tabs.get(Number(source)).catch(()=>null);
   return new Promise((resolve) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => resolve((tabs || [])[0] || null));
   });
@@ -55,7 +78,7 @@ async function downloadCurrentScrolllerMedia() {
       // stack on demand instead of requiring another page reload.
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        files: ["common/settings.js", "content-folders.js", "content-scrolller-v2.js"]
+        files: ["common/sites.js", "common/settings.js", "common/ui.js", "content-folders.js", "content-scrolller-v2.js"]
       });
       response = await sendTabMessage(tab.id, { type: "RG_SCROLLLER_DOWNLOAD_CURRENT" });
     }
@@ -84,7 +107,7 @@ async function sendScrolllerToolCommand(message) {
     } catch {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        files: ["common/settings.js", "content-folders.js", "content-scrolller-v2.js"]
+        files: ["common/sites.js", "common/settings.js", "common/ui.js", "content-folders.js", "content-scrolller-v2.js"]
       });
       return await sendTabMessage(tab.id, message);
     }
@@ -109,23 +132,30 @@ async function resetScrolllerHiddenElements() {
 }
 
 function setCloudStatus(text, level = "idle") {
+  globalThis.RG_UI?.toast(text, level);
   const el = document.getElementById("cloudStatus");
   if (!el) return;
   el.textContent = text || "";
   el.dataset.level = level;
 }
 
-// Worker'ı sekmede açar: giriş yapılmamışsa Google giriş sayfası gelir, sonra
-// eklenti fetch'i o kökene ait oturum çerezini taşır.
+async function openFullArchive(view = "home", google = false) {
+  await pendingWrites;
+  setCloudStatus("Tasu Arşiv açılıyor…");
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "OPEN_TASU_ARCHIVE", view, google });
+    if (!result?.ok) throw new Error(result?.error || "Arşiv açılamadı; eklentiyi yeniden yükle.");
+    setCloudStatus(result.mode === "token" ? "Anahtarla giriş sayfası açıldı." : "Arşiv sitesi açıldı; gerekirse Google ile giriş yap.", "done");
+  } catch (error) { setCloudStatus(error.message || "Arşiv açılamadı.", "error"); }
+}
+
+// Google authentication remains an explicit alternative for the top-level site.
 async function connectWithGoogle() {
-  const s = await readSettings();
-  const base = globalThis.RG_CLOUD.normalizeBase(s.cloudBase);
-  if (!base) { setCloudStatus("Önce Worker adresini gir", "error"); return; }
-  chrome.tabs.create({ url: `${base}/` });
-  setCloudStatus("Site açıldı — Google ile giriş yap. Eklenti içi yükleme/ızgara için jeton gerekir.", "idle");
+  await openFullArchive("home", true);
 }
 
 async function testCloudConnection() {
+  await pendingWrites;
   const s = await readSettings();
   setCloudStatus("Deneniyor…", "idle");
   const r = await globalThis.RG_CLOUD.checkConnection(s);
@@ -137,6 +167,7 @@ async function testCloudConnection() {
 }
 
 async function previewCloudLists() {
+  await pendingWrites;
   const s = await readSettings();
   if (!globalThis.RG_CLOUD.canUseApi(s)) { setCloudStatus("Adres + jeton gir (listeler jeton ister)", "error"); return; }
   setCloudStatus("Listeler çekiliyor…", "idle");
@@ -176,12 +207,11 @@ function sanitizeFolder(value) {
 }
 
 async function saveFolders(folders) {
-  const current = await readSettings();
-  current.mediaFolders = folders;
-  await writeSettings(current);
+  await changeSettings((current) => { current.mediaFolders = folders; });
 }
 
 function setFolderStatus(text, level = "idle") {
+  globalThis.RG_UI?.toast(text, level);
   if (!folderStatus) return;
   folderStatus.textContent = text || "";
   folderStatus.dataset.level = level;
@@ -201,6 +231,7 @@ function renderFolders(settings) {
     input.className = "text-input wide";
     input.type = "text";
     input.value = name;
+    input.setAttribute("aria-label", "Klasör adı");
     input.spellcheck = false;
     input.addEventListener("change", async () => {
       const next = [...folders];
@@ -219,6 +250,7 @@ function renderFolders(settings) {
       const next = folders.filter((_, i) => i !== index);
       await saveFolders(next);
       renderFolders(await readSettings());
+      setFolderStatus("Klasör silindi.", "done");
     });
 
     row.append(input, del);
@@ -233,22 +265,20 @@ async function render(settings) {
 }
 
 async function updateSetting(control) {
-  const current = await readSettings();
   const key = control.dataset.setting;
-
+  let value;
   if (control.type === "checkbox") {
-    current[key] = control.checked;
-  } else if (control.type === "range") {
-    current[key] = Number(control.value);
+    value = control.checked;
+  } else if (control.type === "range" || key === "cloudBwDown" || key === "cloudBwUp") {
+    value = Number(control.value);
   } else if (key === "downloadPath") {
-    current[key] = sanitizePath(control.value);
-    control.value = current[key];
+    value = sanitizePath(control.value);
+    control.value = value;
   } else {
-    current[key] = control.value;
+    value = control.value;
   }
-
-  await writeSettings(current);
-  await render(current);
+  await changeSettings((current) => { current[key] = value; });
+  globalThis.RG_UI?.toast("Ayar kaydedildi.", "success");
 }
 
 /* -------------------------------------------------- yinelenen açık sekmeler */
@@ -293,6 +323,7 @@ function dupeKey(url) {
 }
 
 function setDupeStatus(text, level = "idle") {
+  globalThis.RG_UI?.toast(text, level);
   const el = document.getElementById("dupeStatus");
   if (!el) return;
   el.textContent = text || "";
@@ -409,8 +440,10 @@ async function init() {
   await render(settings);
 
   for (const control of controls) {
-    const eventName = control.type === "range" ? "input" : "change";
-    control.addEventListener(eventName, () => updateSetting(control));
+    control.addEventListener("change", () => updateSetting(control).catch(showSettingsError));
+    if (control.type === "range") control.addEventListener("input", () => {
+      buttonSizeValue.textContent = `${control.value}px`;
+    });
   }
 
   const folderNew = document.getElementById("folderNew");
@@ -430,8 +463,19 @@ async function init() {
   });
 
   document.getElementById("reset").addEventListener("click", async () => {
-    await writeSettings({ ...DEFAULT_SETTINGS });
-    await render({ ...DEFAULT_SETTINGS });
+    try {
+      const keys = [...document.querySelectorAll('[data-screen="settings"] [data-setting]')].map((control) => control.dataset.setting);
+      const settings = await changeSettings((current) => {
+        for (const key of [...keys, "mediaFolders"]) current[key] = DEFAULT_SETTINGS[key];
+      });
+      await render(settings);
+      const glass = document.getElementById("glassEnabled");
+      glass.checked = true;
+      glass.dispatchEvent(new Event("change"));
+      const status = document.getElementById("settingsStatus");
+      status.textContent = "Eklenti ayarları sıfırlandı. Site ayarların ve arşiv bağlantın korundu.";
+      status.dataset.level = "done";
+    } catch { showSettingsError(); }
   });
   document.getElementById("openDebugGuide").addEventListener("click", () => {
     chrome.tabs.create({ url: chrome.runtime.getURL("debug-guide.html") });
@@ -444,14 +488,27 @@ async function init() {
   document.getElementById("cloudGoogle").addEventListener("click", connectWithGoogle);
   document.getElementById("cloudTest").addEventListener("click", testCloudConnection);
   document.getElementById("cloudSyncLists").addEventListener("click", previewCloudLists);
-  document.getElementById("openArchive").addEventListener("click", () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL("archive.html") });
-    window.close();
-  });
+  document.getElementById("openArchive").addEventListener("click", () => openFullArchive());
+  document.getElementById("openArchiveMedia").addEventListener("click", () => openFullArchive("media"));
+  document.getElementById("openArchiveLists").addEventListener("click", () => openFullArchive("lists"));
+  document.getElementById("openDownloads").addEventListener("click", () => { chrome.tabs.create({ url: "edge://downloads/" }); });
 
   document.getElementById("dupeScan").addEventListener("click", scanDuplicates);
   document.getElementById("dupeCloseAll").addEventListener("click", closeAllDuplicates);
-  scanDuplicates(); // menü açılır açılmaz sekmeleri tara
+  document.addEventListener("popup:navigate", (event) => {
+    if (event.detail.screen === "duplicates") void scanDuplicates();
+  });
+  document.addEventListener("popup:reload", async () => {
+    await pendingWrites;
+    chrome.runtime.reload();
+  });
+  document.documentElement.dataset.popupReady = "true";
+  // Observe only these two small status labels, never the entire popup DOM.
+  for (const id of ["scrolllerActionStatus", "settingsStatus"]) {
+    const label = document.getElementById(id);
+    new MutationObserver(() => globalThis.RG_UI?.toast(label.textContent, label.dataset.level || "info"))
+      .observe(label, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["data-level"] });
+  }
 }
 
-init();
+init().catch(showSettingsError);

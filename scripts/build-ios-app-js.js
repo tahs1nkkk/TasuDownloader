@@ -2,9 +2,8 @@
  * Assembles the JS payload the TasuDownloader iOS app injects into its in-app
  * browser (WKWebView).
  *
- * Same philosophy as build-orion-ios.js: the site handlers are copied out of
- * edge-extension/ at build time, never forked, so a parser fix on the desktop
- * side ships to the app with the next build. What the manifest did for the
+ * Site handlers and the site catalog come directly from shared/, never from
+ * generated Edge assets. What the manifest did for the
  * extension (host matching, run_at, worlds) is reproduced here:
  *
  *   rg-core.js      documentStart, app world  — chrome.* bridge + settings + CSS
@@ -16,58 +15,15 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { buildInfo } = require("./lib/versioning.js");
+const { catalog: siteCatalog, coreFiles, nativeRuleFiles, readAsset, handlerFiles, hostPattern, resetGeneratedDirectory } = require("./lib/shared-build.js");
 
 const root = path.resolve(__dirname, "..");
-const shared = path.join(root, "edge-extension");
 const iosApp = path.join(root, "ios-app");
 const outDir = path.join(iosApp, "Resources", "generated");
 
-// Mirrors the content_scripts entries of orion-ios/manifest.mv3.json, and is
-// also the single source of truth for the app's home screen tiles: `id`, `name`,
-// `url` and `tint` are emitted as sites.json, which SiteCatalog.swift reads. Add
-// a site here and its tile appears — there is no second list to keep in sync.
-const SITES = [
-  {
-    id: "redgifs",
-    name: "RedGifs",
-    url: "https://www.redgifs.com",
-    tint: "#FF3B5C",
-    host: "(^|\\.)redgifs\\.com$",
-    files: ["content-folders.js", "content-redgifs.js"]
-  },
-  {
-    id: "reddit",
-    name: "Reddit",
-    url: "https://www.reddit.com",
-    tint: "#FF4500",
-    host: "(^|\\.)reddit\\.com$",
-    files: ["content-folders.js", "content-reddit.js"]
-  },
-  {
-    id: "scrolller",
-    name: "Scrolller",
-    url: "https://scrolller.com",
-    tint: "#3D8BFD",
-    host: "(^|\\.)scrolller\\.com$",
-    files: ["content-folders.js", "content-scrolller-v2.js"]
-  },
-  {
-    id: "coomer",
-    name: "Coomer",
-    url: "https://coomer.st",
-    tint: "#22C55E",
-    host: "(^|\\.)coomer\\.st$",
-    files: ["content-coomer.js"]
-  },
-  {
-    id: "instagram",
-    name: "Instagram",
-    url: "https://www.instagram.com",
-    tint: "#E1306C",
-    host: "(^|\\.)instagram\\.com$",
-    files: ["content-folders.js", "content-instagram.js"]
-  }
-];
+// Home-screen tiles and executable handlers always use the same enabled sites.
+const SITES = siteCatalog.forPlatform("ios");
 
 // Every button the handlers inject, taken from orion-ios/ios-mobile.css. The app
 // keeps them in the DOM — their click handlers are the media resolvers the
@@ -90,7 +46,8 @@ const HANDLER_BUTTONS = [
 
 const read = (...parts) => fs.readFileSync(path.join(...parts), "utf8");
 
-const version = JSON.parse(read(shared, "manifest.json")).version;
+const info = buildInfo("ios");
+const version = info.platformVersion;
 
 // The app browser has no Orion toolbar at the bottom and brings its own native
 // Reddit search overlay, so the extension's is hidden and the bottom offset is
@@ -122,22 +79,24 @@ const core = read(iosApp, "native-bridge.js")
   .replace("__RG_VERSION__", version)
   .replace("__RG_CSS__", JSON.stringify(appCss))
   .replace("__RG_BUTTONS__", JSON.stringify(HANDLER_BUTTONS.join(", ")))
-  + "\n" + read(shared, "common", "settings.js");
+  + "\n" + coreFiles.map(readAsset).join("\n");
 
-const handlers = SITES.map(({ host, files }) => {
-  const body = files.map((file) => read(shared, file)).join("\n");
-  return `;(() => {\n  if (!new RegExp(${JSON.stringify(host)}, "i").test(location.hostname)) return;\n${body}\n})();\n`;
+const handlers = SITES.map((site) => {
+  const body = handlerFiles(site).map(readAsset).join("\n");
+  return `;(() => {\n  if (!new RegExp(${JSON.stringify(hostPattern(site))}, "i").test(location.hostname)) return;\n${body}\n})();\n`;
 }).join("\n");
 
-const pageHook = `;(() => {\n  if (!new RegExp("(^|\\\\.)redgifs\\\\.com$", "i").test(location.hostname)) return;\n${read(shared, "page-hook-redgifs.js")}\n})();\n`;
+const pageHook = SITES.filter((site) => site.pageHook).map((site) =>
+  `;(() => {\n  if (!new RegExp(${JSON.stringify(hostPattern(site))}, "i").test(location.hostname)) return;\n${readAsset(site.pageHook)}\n})();\n`
+).join("\n");
 
-fs.rmSync(outDir, { recursive: true, force: true });
-fs.mkdirSync(outDir, { recursive: true });
+resetGeneratedDirectory("ios-app/Resources/generated");
 
 const outputs = {
   "rg-core.js": core,
   "rg-handlers.js": handlers,
-  "rg-page-hook.js": pageHook
+  "rg-page-hook.js": pageHook,
+  "rg-shared-rules.js": nativeRuleFiles.map(readAsset).join("\n")
 };
 
 for (const [name, content] of Object.entries(outputs)) {
@@ -151,5 +110,6 @@ for (const [name, content] of Object.entries(outputs)) {
 const catalog = SITES.map(({ id, name, url, tint }) => ({ id, name, url, tint }));
 fs.writeFileSync(path.join(outDir, "sites.json"), JSON.stringify(catalog, null, 2), "utf8");
 console.log(`  sites.json  ${catalog.length} site`);
+fs.writeFileSync(path.join(outDir, "build-info.json"), JSON.stringify(info, null, 2) + "\n", "utf8");
 
 console.log(`Assembled iOS app payload v${version} -> ${outDir}`);

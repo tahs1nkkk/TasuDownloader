@@ -8,14 +8,29 @@
     "start": "node src/index.js",
     "install-browser": "playwright install chromium",
     "check": "node scripts/validate-extension.js",
+    "build:shared": "node scripts/build-shared.js",
+    "build:hub": "node scripts/build-hub.js",
+    "test:hub": "node --test tests/hub.test.js tests/hub-worker.test.js tests/dada-source.test.js && node scripts/check-hub-ui.js",
+    "test:music": "python native-music/test_native.py",
+    "release:hub": "node scripts/prepare-hub-preview.js",
     "build:ios": "node scripts/build-orion-ios.js",
     "build:ios:mv2": "node scripts/build-orion-ios.js --mv2",
     "build:app:js": "node scripts/build-ios-app-js.js",
     "preview-debug": "node scripts/preview-debug-guide.js",
-    "test": "node tests/settings.test.js && node scripts/validate-extension.js"
+    "test": "node scripts/run-tests.js && node scripts/validate-extension.js",
+    "test:browser": "node scripts/check-browser-bridges.js",
+    "test:edge": "node scripts/check-edge-archive.js && node scripts/check-popup-ui.js && node scripts/check-instagram-ui.js && node scripts/check-reddit-ui.js && node scripts/check-redgifs-ui.js",
+    "test:redgifs": "node --test tests/redgifs-errors.test.js && node scripts/check-redgifs-ui.js",
+    "test:native": "node scripts/test-native-core.js",
+    "release:plan": "node scripts/release-plan.js",
+    "release:prepare": "node scripts/prepare-client-packages.js"
   },
   "dependencies": {
     "playwright": "^1.54.2"
+  },
+  "devDependencies": {
+    "fflate": "0.8.3",
+    "yaml": "2.9.0"
   },
   "engines": {
     "node": ">=18"

@@ -9,7 +9,7 @@
  * "Save Image" / "Save Video" is the only route into Photos.
  *
  * Every site handler (content-redgifs.js, content-reddit.js, ...) is copied from
- * edge-extension/ untouched by scripts/build-orion-ios.js. Keep this file the
+ * shared/ untouched by scripts/build-orion-ios.js. Keep this file the
  * only place that knows the platform differs.
  */
 (() => {
@@ -166,6 +166,7 @@
       label = "redgifs-video";
     }
     label = label.replace(/\.(mp4|webm|mov|m4v|jpg|jpeg|png|webp|gif)$/i, "");
+    label = globalThis.RG_MEDIA.stripVariantSuffix(label) || "media";
     return `${label}${ext}`;
   }
 
@@ -466,7 +467,10 @@
   }
 
   async function handleDirectDownload(message) {
-    const site = siteFromUrl(message.fallbackSourceUrl || location.href);
+    const checked = globalThis.RG_DOWNLOAD.validate(message);
+    if (!checked.ok) return checked;
+    message = checked.message;
+    const site = message.site || siteFromUrl(message.fallbackSourceUrl || location.href);
     const wantImage = Boolean(message.imageMode);
     const namingUrl = typeof message.namingUrl === "string" ? message.namingUrl : "";
     const errors = [];

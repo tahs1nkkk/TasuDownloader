@@ -95,6 +95,7 @@
   }
 
   function toast(text, isErr) {
+    if (globalThis.RG_UI) { globalThis.RG_UI.toast(text, isErr ? "error" : "success"); return; }
     ensureStyle();
     const old = document.getElementById(TOAST_ID);
     if (old) old.remove();

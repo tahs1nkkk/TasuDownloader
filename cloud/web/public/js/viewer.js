@@ -85,9 +85,14 @@ function player(item) {
     } catch { toast("Küçük pencere desteklenmiyor", "err"); }
   };
   fullBtn.onclick = async () => {
+    // Tam ekran hedefi görüntüleyicinin tamamı (#viewer host): İndir/Paylaş/Sil/
+    // Kapat çubuğu tam ekranda da görünsün (eskiden yalnız .player tam ekrana
+    // gidiyor, kardeşi olan çubuk dışarıda kalıp kayboluyordu). iOS'ta div tam
+    // ekranı yok → native video tam ekranına düşülür.
+    const host = $("#viewer");
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
-      else if (wrap.requestFullscreen) await wrap.requestFullscreen();
+      else if (host && host.requestFullscreen) await host.requestFullscreen();
       else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen(); // iOS Safari
     } catch { /* kullanıcı iptal etti */ }
   };
@@ -289,8 +294,10 @@ export function openViewer(list, start, remove) {
       case " ": if (video) { event.preventDefault(); if (video.paused) video.play(); else video.pause(); } break;
       case "m": if (video) video.muted = !video.muted; break;
       case "f": {
-        const wrap = host.querySelector(".player") || host.querySelector("img");
-        if (wrap && wrap.requestFullscreen) wrap.requestFullscreen().catch(() => {});
+        // Görüntüleyicinin tamamını tam ekrana al (çubuk dahil); iOS'ta native video.
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+        else if (host.requestFullscreen) host.requestFullscreen().catch(() => {});
+        else if (video && video.webkitEnterFullscreen) video.webkitEnterFullscreen();
         break;
       }
       case "Delete": event.preventDefault(); removeCurrent(); break;

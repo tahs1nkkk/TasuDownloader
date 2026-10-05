@@ -1,8 +1,11 @@
+// Generated from shared/hooks/redgifs.js; run npm run build:shared. Do not edit.
+// Shared source; platform packages are generated from this file.
 (() => {
   if (window.__rgRipsnipPageHookLoaded) return;
   window.__rgRipsnipPageHookLoaded = true;
 
   function publish(text, source) {
+    if (document.hidden || document.documentElement.dataset.tasuSuspended === "true") return;
     if (!text || typeof text !== "string") return;
     window.postMessage(
       {

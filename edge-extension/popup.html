@@ -3,251 +3,142 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
     <link rel="stylesheet" href="popup.css">
-    <title>RedGifs Downloader</title>
+    <title>Tasu Downloader</title>
   </head>
   <body>
-    <main class="panel">
+    <div id="glassBackdrop" aria-hidden="true"></div>
+    <div class="glass-wash" aria-hidden="true"></div>
+    <div class="shell">
       <header class="topbar">
-        <div class="brand">
-          <img src="icon.svg" alt="" aria-hidden="true">
-          <div>
-            <h1>RedGifs Downloader</h1>
-            <span id="version"></span>
-          </div>
-        </div>
+        <button id="reloadExtension" class="icon-button" type="button" aria-label="Eklentiyi yenile" title="Eklentiyi yeniden yükle · devam eden işlemleri kesebilir"><svg aria-hidden="true"><use href="assets/menu-icons.svg#refresh"/></svg></button>
+        <button class="brand" type="button" data-route="home" aria-label="Tasu Downloader · Ana sayfa"><span>Tasu Downloader</span><small id="version"></small></button>
+        <button id="openSettings" class="icon-button" type="button" data-route="settings" aria-label="Eklenti ayarları" title="Eklenti ayarları"><svg aria-hidden="true"><use href="assets/menu-icons.svg#settings"/></svg></button>
       </header>
-
-      <details class="site" open>
-        <summary>Yinelenen sekmeler</summary>
-        <div class="site-body">
-          <p class="dupe-hint">Açık sekmelerde birden çok kez açılmış <strong>aynı bağlantıları</strong> bulur. Aynı profilin farklı gönderileri sayılmaz — yalnız birebir aynı adres.</p>
-          <div class="button-row">
-            <button id="dupeScan" class="secondary-action" type="button">Açık sekmeleri tara</button>
-            <button id="dupeCloseAll" class="secondary-action" type="button" hidden>Tüm fazlalıkları kapat</button>
+      <main id="screenScroller" class="screen-scroller">
+        <section class="screen home-screen" data-screen="home" aria-labelledby="homeTitle">
+          <div class="home-intro"><p class="eyebrow">SENİN İNDİRME ALANIN</p><h1 id="homeTitle" tabindex="-1">Her şey bir arada.</h1><p class="subtitle">Sitelerin, arşivin ve tüm araçların.</p></div>
+          <div class="section-heading"><h2>Siteler</h2><span id="siteCount"></span></div>
+          <nav id="siteGrid" class="site-grid" aria-label="Site ayarları"></nav>
+          <p class="hover-hint">Üzerine gel, keşfet. Tıkla, düzenle.</p>
+          <div class="section-heading tools-heading"><h2>Senin araçların</h2><span>TEK DOKUNUŞ</span></div>
+          <nav class="tool-grid" aria-label="Eklenti araçları">
+            <button type="button" class="tool-tile" data-route="archive"><span class="tool-icon violet"><svg aria-hidden="true"><use href="assets/menu-icons.svg#archive"/></svg></span><span>Tasu Arşiv</span></button>
+            <button type="button" class="tool-tile" data-route="downloads"><span class="tool-icon blue"><svg aria-hidden="true"><use href="assets/menu-icons.svg#download"/></svg></span><span>İndirmeler</span></button>
+            <button type="button" class="tool-tile" data-route="duplicates"><span class="tool-icon teal"><svg aria-hidden="true"><use href="assets/menu-icons.svg#tabs"/></svg></span><span>Sekmeler</span></button>
+            <button type="button" class="tool-tile" data-route="debug"><span class="tool-icon amber"><svg aria-hidden="true"><use href="assets/menu-icons.svg#debug"/></svg></span><span>Debug</span></button>
+          </nav>
+          <div class="home-footer"><span class="status-dot"></span><span id="homeStatus">İndirmeye hazır</span><svg aria-hidden="true"><use href="assets/menu-icons.svg#sparkle"/></svg></div>
+        </section>
+        <section class="screen" data-screen="redgifs" hidden>
+          <div class="site-heading" data-site-heading="redgifs"></div>
+          <div class="glass-card">
+            <label class="row"><span><strong>Profil fotoğrafını indir</strong><small>Profil sayfasında avatar indirme butonu</small></span><input type="checkbox" data-setting="redgifsAvatarDownload" role="switch"></label>
+            <label class="row"><span><strong>Küçük avatarları atla</strong><small>Profil simgelerini medya olarak gösterme</small></span><input type="checkbox" data-setting="hideRedgifsProfileAvatars" role="switch"></label>
           </div>
-          <small id="dupeStatus" class="folder-status"></small>
+          <div class="note-card"><svg aria-hidden="true"><use href="assets/menu-icons.svg#folder"/></svg><p>Niche indirmeleri, <strong>RedGifs / Niches / niche adı</strong> altında toplanır. Burada fotoğraf ve video ayrılmaz.</p></div>
+        </section>
+        <section class="screen" data-screen="reddit" hidden>
+          <div class="site-heading" data-site-heading="reddit"></div>
+          <div class="glass-card">
+            <label class="row"><span><strong>Görselleri indir</strong><small>Tekli görseller ve çoklu galeriler</small></span><input type="checkbox" data-setting="redditImages" role="switch"></label>
+            <label class="row"><span><strong>Küçük avatarları atla</strong><small>Profil simgelerinde indirme butonu gösterme</small></span><input type="checkbox" data-setting="hideRedditProfileAvatars" role="switch"></label>
+          </div>
+          <p class="note">Galeri butonu yalnızca birden fazla görsel olduğunda görünür.</p>
+        </section>
+        <section class="screen" data-screen="scrolller" hidden>
+          <div class="site-heading" data-site-heading="scrolller"></div>
+          <div class="glass-card"><label class="row"><span><strong>İndirme butonları</strong><small>Fotoğraf, GIF ve videoların üzerinde</small></span><input type="checkbox" data-setting="scrolllerButtons" role="switch"></label></div>
+          <h3>Sayfa araçları</h3>
+          <button id="downloadScrolllerCurrent" class="action-button" type="button"><svg aria-hidden="true"><use href="assets/menu-icons.svg#download"/></svg>Görünen medyayı indir</button>
+          <div class="button-row"><button id="pickScrolllerElement" type="button">Öğe gizle</button><button id="resetScrolllerElements" type="button">Gizlenenleri geri getir</button></div>
+          <small id="scrolllerActionStatus" class="folder-status" role="status"></small>
+          <p class="note">Bu araçları kullanırken Scrolller sekmesi açık ve etkin olmalı.</p>
+        </section>
+        <section class="screen" data-screen="coomer" hidden>
+          <div class="site-heading" data-site-heading="coomer"></div>
+          <div class="glass-card"><label class="row"><span><strong>Post eklerinde indirme</strong><small>Yalnızca post içindeki gerçek medyalarda buton göster</small></span><input type="checkbox" data-setting="coomerButtons" role="switch"></label></div>
+          <div class="note-card"><svg aria-hidden="true"><use href="assets/menu-icons.svg#folder"/></svg><p>Profil önizlemeleri atlanır. İndirmeler <strong>Coomer / kullanıcı adı / Fotoğraflar veya Videolar</strong> altında ayrılır.</p></div>
+        </section>
+        <section class="screen" data-screen="onlyfans" hidden>
+          <div class="site-heading" data-site-heading="onlyfans"></div>
+          <div class="glass-card"><label class="row"><span><strong>İndirme butonları</strong><small>Post ve akıştaki görseller ile desteklenen videolarda</small></span><input type="checkbox" data-setting="onlyfansButtons" role="switch"></label></div>
+          <p class="note">Mesajlar, DRM korumalı ve şifreli videolar desteklenmez. Yalnızca erişim ve indirme hakkın olan içerikleri indir.</p>
+        </section>
+        <section class="screen" data-screen="instagram" hidden>
+          <div class="site-heading" data-site-heading="instagram"></div>
+          <div class="glass-card"><label class="row"><span><strong>İndirme butonları</strong><small>Gönderiler, Reels ve profil fotoğrafları</small></span><input type="checkbox" data-setting="instagramButtons" role="switch"></label></div>
+          <p class="note">Mavi buton tek medyayı, pembe buton gönderideki tüm medyaları indirir.</p>
+        </section>
+        <section class="screen" data-screen="archive" hidden>
+          <div class="page-heading"><span class="tool-icon violet"><svg aria-hidden="true"><use href="assets/menu-icons.svg#archive"/></svg></span><h1 tabindex="-1">Tasu Arşiv</h1><p>Telefonunla aynı arşiv. Tek bir bağlantı.</p></div>
+          <button id="openArchive" class="action-button" type="button"><svg aria-hidden="true"><use href="assets/menu-icons.svg#external"/></svg>Tam arşivi aç</button>
+          <div class="button-row"><button id="openArchiveMedia" type="button">Medyalar</button><button id="openArchiveLists" type="button">Listeler</button></div>
+          <h3>Arşiv bağlantısı</h3>
+          <div class="glass-card">
+            <label class="stack"><span><strong>Sunucu adresi</strong><small>iOS uygulamasındaki Worker adresiyle aynı</small></span><input class="text-input wide" type="url" data-setting="cloudBase" placeholder="https://arsiv.workers.dev" spellcheck="false" autocomplete="off"></label>
+            <label class="stack"><span><strong>Erişim anahtarı · isteğe bağlı</strong><small>Google ile bağlanacaksan boş bırak.</small></span><input class="text-input wide" type="password" data-setting="cloudToken" placeholder="Google girişinde gerekli değil" spellcheck="false" autocomplete="off"></label>
+          </div>
+          <div class="button-row"><button id="cloudGoogle" type="button">Google ile bağlan</button><button id="cloudTest" type="button">Bağlantıyı sına</button></div>
+          <details class="note"><summary>Erişim anahtarını nereden alırım?</summary><p>Normal kullanım: sunucu adresini gir, anahtarı boş bırak ve Google ile bağlan. Açılan arşivde izin verilen Google hesabınla giriş yap.</p><p>Anahtarla giriş kullanıyorsan gereken değer, arşivi kurarken sunucuda tanımladığın ARCHIVE_TOKEN gizli değeridir. Eklenti yeni anahtar üretmez. Google girişini kullanmak için bu değeri bulman gerekmez.</p></details>
+          <small id="cloudStatus" class="folder-status" role="status"></small>
+          <h3>Eşitleme ve aktarım</h3>
+          <div class="glass-card">
+            <label class="row"><span><strong>Listeleri eşitle</strong><small>Telefon ve web listelerini galeriye taşı</small></span><input type="checkbox" data-setting="cloudListSync" role="switch"></label>
+            <label class="row"><span><strong>İndirme hızı</strong><small>Sunucudan çekerken</small></span><select data-setting="cloudBwDown" data-bandwidth></select></label>
+            <label class="row"><span><strong>Yükleme hızı</strong><small>Buluta yüklerken</small></span><select data-setting="cloudBwUp" data-bandwidth></select></label>
+          </div>
+          <button id="cloudSyncLists" class="action-button" type="button">Listeleri kontrol et</button>
+          <p class="note">Tam arşiv; kategoriler, liste düzenleme, paylaşım ve yükleme için yeni sekmede açılır.</p>
+        </section>
+        <section class="screen" data-screen="downloads" hidden>
+          <div class="page-heading"><span class="tool-icon blue"><svg aria-hidden="true"><use href="assets/menu-icons.svg#download"/></svg></span><h1 tabindex="-1">İndirmeler</h1></div>
+          <button id="openDownloads" class="action-button" type="button"><svg aria-hidden="true"><use href="assets/menu-icons.svg#download"/></svg>Edge indirmelerini aç</button>
+          <button class="text-button" type="button" data-route="archive">Tasu Arşiv <span aria-hidden="true">→</span></button>
+        </section>
+        <section class="screen" data-screen="duplicates" hidden>
+          <div class="page-heading"><span class="tool-icon teal"><svg aria-hidden="true"><use href="assets/menu-icons.svg#tabs"/></svg></span><h1 tabindex="-1">Sekmelerine yer aç.</h1><p>Aynı bağlantı, birden fazla sekme olmasın.</p></div>
+          <div class="button-row"><button id="dupeScan" type="button">Açık sekmeleri tara</button><button id="dupeCloseAll" type="button" hidden>Tüm fazlalıkları kapat</button></div>
+          <small id="dupeStatus" class="folder-status" role="status"></small>
           <div id="dupeList" class="dupe-list"></div>
-        </div>
-      </details>
-
-      <details class="site" open>
-        <summary>Sunucu / Bulut</summary>
-        <div class="site-body">
-          <label class="stack">
-            <span>
-              <strong>Worker adresi</strong>
-              <small>Ör. https://arsiv-adin.workers.dev — iOS'takiyle aynı</small>
-            </span>
-            <input class="text-input wide" type="text" data-setting="cloudBase" placeholder="https://…workers.dev" spellcheck="false">
-          </label>
-
-          <label class="stack">
-            <span>
-              <strong>Jeton (ARCHIVE_TOKEN)</strong>
-              <small>Google girişi kullanacaksan boş bırak</small>
-            </span>
-            <input class="text-input wide" type="password" data-setting="cloudToken" placeholder="Bearer jeton" spellcheck="false" autocomplete="off">
-          </label>
-
-          <div class="button-row">
-            <button id="cloudGoogle" class="secondary-action" type="button">Google ile bağlan</button>
-            <button id="cloudTest" class="secondary-action" type="button">Bağlantıyı sına</button>
+          <p class="note">Desteklenen sitelerdeki aynı bağlantıları bulur; farklı gönderileri birleştirmez. Kapatma işlemini sen başlatırsın.</p>
+        </section>
+        <section class="screen" data-screen="debug" hidden>
+          <div class="page-heading"><span class="tool-icon amber"><svg aria-hidden="true"><use href="assets/menu-icons.svg#debug"/></svg></span><h1 tabindex="-1">Birlikte kontrol edelim.</h1><p>Her site için adım adım test rehberi.</p></div>
+          <div class="glass-card info-card"><h3>Çalışıyor mu, çalışmıyor mu?</h3><p>Rehber seni sırayla yönlendirir. Bir şey çalışmazsa ilgili kontrolün çıktısını ekleyebilir, sonuçları tek bir debug dosyasında toplayabilirsin.</p></div>
+          <button id="openDebugGuide" class="action-button" type="button"><svg aria-hidden="true"><use href="assets/menu-icons.svg#debug"/></svg>Debug rehberini aç</button>
+          <p class="note">Rehber, test sırasında açık kalabilmesi için ayrı sekmede açılır.</p>
+        </section>
+        <section class="screen" data-screen="settings" hidden>
+          <div class="page-heading"><h1 tabindex="-1">Tam senin istediğin gibi.</h1><p>Eklenti ayarları · Değişiklikler otomatik kaydedilir.</p></div>
+          <h3>Görünüm</h3>
+          <div class="glass-card">
+            <label class="row"><span><strong>Cam arka plan</strong><small>Sekmenin açılış anındaki bulanık görüntüsü. Kaydedilmez, gönderilmez.</small></span><input id="glassEnabled" type="checkbox" role="switch" checked></label>
+            <label class="row"><span><strong>Medya butonları</strong><small>Sitelerdeki indirme butonları</small></span><select data-setting="buttonVisibility"><option value="hover">Üzerine gelince</option><option value="always">Her zaman</option></select></label>
+            <label class="stack"><span class="range-label"><strong>İndirme butonu boyutu</strong><output id="buttonSizeValue"></output></span><input type="range" min="28" max="72" step="2" data-setting="buttonSize"></label>
           </div>
-          <small id="cloudStatus" class="folder-status"></small>
-
-          <label class="row">
-            <span>
-              <strong>İndirilenler nereye</strong>
-              <small>Yerel: diske · Sunucu: buluta · İkisi: ikisine de</small>
-            </span>
-            <select data-setting="cloudDestination">
-              <option value="local">Yerel</option>
-              <option value="cloud">Sunucu</option>
-              <option value="both">İkisi</option>
-            </select>
-          </label>
-
-          <label class="row">
-            <span>
-              <strong>İndirme hızı sınırı</strong>
-              <small>Sunucudan çekerken</small>
-            </span>
-            <select data-setting="cloudBwDown">
-              <option value="0">Sınırsız</option>
-              <option value="1">1 Mbps</option>
-              <option value="2">2 Mbps</option>
-              <option value="5">5 Mbps</option>
-              <option value="10">10 Mbps</option>
-              <option value="20">20 Mbps</option>
-              <option value="50">50 Mbps</option>
-              <option value="100">100 Mbps</option>
-              <option value="200">200 Mbps</option>
-              <option value="500">500 Mbps</option>
-            </select>
-          </label>
-
-          <label class="row">
-            <span>
-              <strong>Yükleme hızı sınırı</strong>
-              <small>Buluta yüklerken</small>
-            </span>
-            <select data-setting="cloudBwUp">
-              <option value="0">Sınırsız</option>
-              <option value="1">1 Mbps</option>
-              <option value="2">2 Mbps</option>
-              <option value="5">5 Mbps</option>
-              <option value="10">10 Mbps</option>
-              <option value="20">20 Mbps</option>
-              <option value="50">50 Mbps</option>
-              <option value="100">100 Mbps</option>
-              <option value="200">200 Mbps</option>
-              <option value="500">500 Mbps</option>
-            </select>
-          </label>
-
-          <label class="row">
-            <span>
-              <strong>Listeleri eşitle</strong>
-              <small>Telefon/web listelerini arşiv panelinde göster</small>
-            </span>
-            <input type="checkbox" data-setting="cloudListSync">
-          </label>
-
-          <div class="button-row">
-            <button id="openArchive" class="secondary-action" type="button">Arşivi aç</button>
-            <button id="cloudSyncLists" class="secondary-action" type="button">Şimdi eşitle</button>
+          <h3>İndirmeler</h3>
+          <div class="glass-card">
+            <label class="row"><span><strong>Kayıt hedefi</strong><small>Bulut için Tasu Arşiv bağlantısı gerekir</small></span><select data-setting="cloudDestination"><option value="local">Bilgisayar</option><option value="cloud">Bulut</option><option value="both">İkisi de</option></select></label>
+            <label class="stack"><span><strong>Ana klasör adı</strong><small>İndirilenler klasörünün altında oluşturulur</small></span><input class="text-input wide" type="text" data-setting="downloadPath" spellcheck="false"></label>
+            <label class="row"><span><strong>Klasör düzeni</strong><small>Site / fotoğraf-video / seçilen klasör</small></span><select data-setting="folderLayout"><option value="organized">Siteye göre</option><option value="legacy">Eski düzen</option></select></label>
+            <label class="row"><span><strong>Dosya adına tarih ekle</strong><small>Medya adının yanına tarih ekler</small></span><input type="checkbox" data-setting="includeDateInFilename" role="switch"></label>
           </div>
-        </div>
-      </details>
-
-      <details class="site">
-        <summary>Scrolller</summary>
-        <div class="site-body">
-          <label class="row">
-            <span>
-              <strong>İndirme butonu</strong>
-              <small>Fotoğraf, gif ve videolar için sol üstte buton</small>
-            </span>
-            <input type="checkbox" data-setting="scrolllerButtons">
-          </label>
-          <button id="downloadScrolllerCurrent" class="secondary-action" type="button">Görünen medyayı indir</button>
-          <div class="button-row">
-            <button id="pickScrolllerElement" class="secondary-action" type="button">Öğe gizle</button>
-            <button id="resetScrolllerElements" class="secondary-action" type="button">Gizlenenleri geri getir</button>
-          </div>
-          <small id="scrolllerActionStatus" class="folder-status"></small>
-        </div>
-      </details>
-
-      <details class="site">
-        <summary>Coomer</summary>
-        <div class="site-body">
-          <label class="row">
-            <span>
-              <strong>Post eklerinde indirme butonu</strong>
-              <small>Profil önizlemelerini atlar; post içindeki gerçek ekleri kullanıcı adına göre klasörler</small>
-            </span>
-            <input type="checkbox" data-setting="coomerButtons">
-          </label>
-        </div>
-      </details>
-
-      <details class="site">
-        <summary>OnlyFans</summary>
-        <div class="site-body">
-          <label class="row">
-            <span>
-              <strong>İndirme butonu</strong>
-              <small>Post/akış görselleri ve videoları (HLS); medyanın üstünde buton, kullanıcı adına göre klasörler. Mesajlar hariç.</small>
-            </span>
-            <input type="checkbox" data-setting="onlyfansButtons">
-          </label>
-        </div>
-      </details>
-
-      <details class="site">
-        <summary>Instagram</summary>
-        <div class="site-body">
-          <label class="row">
-            <span>
-              <strong>İndirme butonu</strong>
-              <small>Post/reel medyası ve profil fotoğrafı (mavi: tekli, pembe: tümü)</small>
-            </span>
-            <input type="checkbox" data-setting="instagramButtons">
-          </label>
-        </div>
-      </details>
-
-      <details class="site">
-        <summary>Global</summary>
-        <div class="site-body">
-          <label class="row">
-            <span>
-              <strong>Buton görünürlüğü</strong>
-              <small>Tüm sitelerde geçerli</small>
-            </span>
-            <select data-setting="buttonVisibility">
-              <option value="hover">Hover</option>
-              <option value="always">Her zaman</option>
-            </select>
-          </label>
-
-          <label class="row">
-            <span>
-              <strong>Ana klasör adı</strong>
-              <small>Menüde "Ana klasör" seçilince buraya iner</small>
-            </span>
-            <input class="text-input" type="text" data-setting="downloadPath" spellcheck="false">
-          </label>
-
-          <label class="row">
-            <span>
-              <strong>Klasör düzeni</strong>
-              <small>Düzenli: ana klasör / site / fotoğraf-video / seçim</small>
-            </span>
-            <select data-setting="folderLayout">
-              <option value="organized">Siteye göre</option>
-              <option value="legacy">Eski düzen</option>
-            </select>
-          </label>
-
-          <label class="row">
-            <span>
-              <strong>Dosya adına tarih ekle</strong>
-              <small>Kapatılırsa sadece video adı kullanılır</small>
-            </span>
-            <input type="checkbox" data-setting="includeDateInFilename">
-          </label>
-
-          <label class="stack">
-            <span>
-              <strong>İndirme butonu boyutu</strong>
-              <small><output id="buttonSizeValue"></output></small>
-            </span>
-            <input type="range" min="28" max="72" step="2" data-setting="buttonSize">
-          </label>
-
-          <div class="stack">
-            <span>
-              <strong>Klasörler</strong>
-              <small>İndirirken menüde çıkar; fotoğraf/video klasörünün altına eklenir</small>
-            </span>
-            <div id="folderList" class="folder-list"></div>
-            <div class="folder-add">
-              <input id="folderNew" class="text-input wide" type="text" placeholder="Yeni klasör adı" spellcheck="false">
-              <button id="folderAdd" type="button" class="secondary-action">Ekle</button>
-            </div>
-            <small id="folderStatus" class="folder-status"></small>
-          </div>
-        </div>
-      </details>
-
-      <button id="openDebugGuide" class="secondary-action" type="button">Debug rehberini aç</button>
-      <button id="reset" type="button">Varsayılana dön</button>
-    </main>
+          <h3>Özel klasörlerin</h3>
+          <div class="glass-card padded"><p class="note">İndirirken seçebilirsin. Fotoğraf/video klasörünün altına eklenir.</p><div id="folderList" class="folder-list"></div><div class="folder-add"><input id="folderNew" class="text-input wide" type="text" placeholder="Yeni klasör adı" aria-label="Yeni klasör adı" spellcheck="false"><button id="folderAdd" type="button">Ekle</button></div><small id="folderStatus" class="folder-status" role="status"></small></div>
+          <button id="reset" class="action-button" type="button">Eklenti ayarlarını sıfırla</button>
+          <small id="settingsStatus" class="folder-status" role="status"></small>
+          <p class="note">Site ayarların ve arşiv bağlantın korunur. Siteye özel ayarlar ana sayfadaki simgelerin içinde.</p>
+        </section>
+      </main>
+      <div id="popupStatus" class="popup-status" role="status" hidden></div>
+    </div>
+    <script src="common/sites.js"></script>
     <script src="common/settings.js"></script>
     <script src="common/cloud.js"></script>
+    <script src="common/ui.js"></script>
+    <script src="popup-ui.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

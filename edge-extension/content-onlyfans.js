@@ -1,6 +1,9 @@
+// Generated from shared/sites/onlyfans.js; run npm run build:shared. Do not edit.
+// Shared source; platform packages are generated from this file.
 (() => {
   if (window.top !== window || window.__rgOnlyfansLoaded) return;
   window.__rgOnlyfansLoaded = true;
+  const life = globalThis.RG_LIFECYCLE?.create("onlyfans") || { listen:(t,...a)=>t.addEventListener(...a), unlisten:(t,...a)=>t.removeEventListener(...a), MutationObserver, setInterval:globalThis.setInterval.bind(globalThis), clearInterval:globalThis.clearInterval.bind(globalThis), raf:globalThis.requestAnimationFrame.bind(globalThis), cancelAnimationFrame:globalThis.cancelAnimationFrame.bind(globalThis) };
 
   const BUTTON_CLASS = "rg-of-download";
   const LINK_HOST_CLASS = "rg-of-media-link";
@@ -35,7 +38,7 @@
   // page-hook-onlyfans.js oynatıcının çektiği .m3u8 adreslerini buraya iletir.
   const hlsSeen = []; // { url, ts } — en yeni sonda
   const HLS_MAX = 40;
-  window.addEventListener("message", (event) => {
+  life.listen(window, "message", (event) => {
     if (event.source !== window) return;
     const data = event.data;
     if (!data || data.source !== "RG_OF_HOOK" || data.kind !== "hls" || !data.url) return;
@@ -376,13 +379,16 @@
       if (button.disabled) return;
       button.disabled = true;
       const originalTitle = kind === "video" ? "Videoyu indir" : "Görseli indir";
+      globalThis.RG_UI?.toast("İndirme hazırlanıyor…", "info");
       try {
         await onDownload(button);
+        globalThis.RG_UI?.toast("İndirme başlatıldı.", "info");
         button.style.setProperty("background", "#15803d", "important");
         button.title = originalTitle;
         setTimeout(() => button.style.removeProperty("background"), 900);
       } catch (error) {
         console.error("[rg-onlyfans] download failed", error);
+        globalThis.RG_UI?.toast(String(error?.message || error), "error");
         button.style.setProperty("background", "#b91c1c", "important");
         button.title = String((error && error.message) || error || "E_FAILED");
       } finally {
@@ -433,7 +439,7 @@
   function scheduleScan() {
     if (scanScheduled) return;
     scanScheduled = true;
-    requestAnimationFrame(() => {
+    life.raf(() => {
       scanScheduled = false;
       scan();
     });
@@ -458,9 +464,9 @@
     return out;
   };
 
-  new MutationObserver(scheduleScan).observe(document.documentElement, { childList: true, subtree: true });
-  window.addEventListener("popstate", scheduleScan);
-  window.addEventListener("scroll", scheduleScan, { passive: true });
+  new life.MutationObserver(scheduleScan).observe(document.documentElement, { childList: true, subtree: true });
+  life.listen(window, "popstate", scheduleScan);
+  life.listen(window, "scroll", scheduleScan, { passive: true });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local" || !changes[SETTINGS_KEY]) return;
     settings = { ...globalThis.RG_SETTINGS.DEFAULT_SETTINGS, ...(changes[SETTINGS_KEY].newValue || {}) };
@@ -472,4 +478,5 @@
     applyButtonVisibility();
     scan();
   });
+  life.onResume = scheduleScan;
 })();

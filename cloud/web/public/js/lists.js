@@ -304,17 +304,44 @@ async function customize(list, refresh) {
 
 // Satır işareti. Sahibi adresten okunabilen bağlantılarda telefonun buluta
 // bıraktığı profil resmi gösteriliyor; okunamıyorsa ya da o profilin resmi
-// henüz yüklenmemişse altındaki site işareti görünür kalıyor. Resim kendi
-// hatasında siliniyor, böylece yoklama isteği atmadan tek denemede karar
-// veriliyor ve resmi olmayan satır boş bir kare göstermiyor.
+// henüz yüklenmemişse altındaki site işareti görünür kalıyor.
+//
+// Profil resmi <img src> ile değil fetch ile yoklanıyor: web yalnız okur, resmi
+// yalnız iOS uygulaması yazar; henüz yazılmamış bir profil için Worker artık
+// 204 (No Content) döner — 404 değil. Neden: eskiden <img src> eksik profilde
+// 404 alıp konsola kırmızı hata basardı (ör. "reddit~r-a_cups 404"); fetch'e
+// geçmek yetmedi, çünkü tarayıcı fetch'in 404'ünü de konsola basıyor. 204 bir
+// hata statüsü olmadığından hiçbir yol konsolu kirletmez. fetch kullanıyoruz ki
+// boş gövdeyi görüp <img>'i hiç kurmayalım; aynı profil onlarca satırda
+// paylaşıldığından sonuç (blob URL ya da "yok") modül düzeyinde bir kez saklanır.
+const avatarCache = new Map();   // id -> objectURL (var) | null (bilinen eksik)
+const avatarWait = new Map();    // id -> uçuştaki Promise
+
+function loadAvatar(id) {
+  if (avatarCache.has(id)) return Promise.resolve(avatarCache.get(id));
+  if (avatarWait.has(id)) return avatarWait.get(id);
+  const job = fetch(avatarURL(id), { credentials: "same-origin" })
+    .then((res) => (res.ok ? res.blob() : null))
+    .then((blob) => {
+      // 204 ise blob boş gelir (size 0) → profil yok say, blob URL üretme.
+      const url = blob && blob.size ? URL.createObjectURL(blob) : null;
+      avatarCache.set(id, url);
+      avatarWait.delete(id);
+      return url;
+    })
+    .catch(() => { avatarCache.set(id, null); avatarWait.delete(id); return null; });
+  avatarWait.set(id, job);
+  return job;
+}
+
 function itemIcon(url) {
   const node = el("span", { class: "list-ico", html: siteBrand(siteOfURL(url)).mark });
   const id = avatarId(url);
   if (!id) return node;
-  const img = el("img", {
-    class: "list-avatar", src: avatarURL(id), alt: "", loading: "lazy", decoding: "async",
-    onerror: () => img.remove()
-  });
+  // Bilinen eksik profil için hiç <img> kurma; alttaki site işareti kalır.
+  if (avatarCache.get(id) === null) return node;
+  const img = el("img", { class: "list-avatar", alt: "", decoding: "async" });
+  loadAvatar(id).then((src) => { if (src) img.src = src; else img.remove(); });
   node.append(img);
   return node;
 }

@@ -1,3 +1,5 @@
+// Generated from shared/hooks/onlyfans.js; run npm run build:shared. Do not edit.
+// Shared source; platform packages are generated from this file.
 (() => {
   // OnlyFans, videolarını HLS (.m3u8) ile MSE üzerinden oynatır: <video> etiketinin
   // src'si "blob:" olur, gerçek dosya asla DOM'da görünmez. İçerik betiği (izole
@@ -14,6 +16,7 @@
   }
 
   function publish(url) {
+    if (document.hidden || document.documentElement.dataset.tasuSuspended === "true") return;
     const abs = absolute(url);
     if (!abs || !HLS_RE.test(abs)) return;
     try {

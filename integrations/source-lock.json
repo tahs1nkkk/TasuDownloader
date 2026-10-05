@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "snapshots": [
+    {
+      "project": "roblox-friend-tracker",
+      "file": "background.js",
+      "sha256": "7b252fdf466825309ef225ce9fd8dd9662978e65a2c18430e87012234c4c1f74"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "popup.html",
+      "sha256": "476ecd867fc5231d9ec53ca0be973ec0c029296309e21ac252b71c53f227cc42"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "popup.js",
+      "sha256": "aa1c23b635d488318b1912660b8763f373dba0f1f59e6452da225952aa4bb3b1"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "popup.css",
+      "sha256": "a072431cc98b10f7a5121d1b6a2c855e12ffd9a59fa082ee681d834796077994"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "i18n.js",
+      "sha256": "6bb7164b50b429de766e2606f67631b5cd341a78fc5da92f40ffd1a7129aca42"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "icons/icon.svg",
+      "sha256": "7b228471f5cbf7a097d9ea10311b489a79a0878a59b82cd34bae6b0ee97b39f0"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "icons/icon128.png",
+      "sha256": "7334c71f6a14431503346e31284467a3b4889f36fd6b0fa8d3f42b255f3d3a1d"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "icons/icon16.png",
+      "sha256": "7f44fd0720f4891e0b4c08b11ac7e769df20572bd8bdc43a3b792212bdfd5ed5"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "icons/icon32.png",
+      "sha256": "c01ce4155a433fc3cb20498ccf557d92202759f96fbccb03a944964ae2c726d5"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "icons/icon48.png",
+      "sha256": "3c2189e7f905d3db608834748eabfd4493bff38197e7204ff07ecc65a84cf572"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "icons/notif-added.png",
+      "sha256": "dec5b633408a78882dbf9506f23ec56c5e57f2db8175312022bbfff2c3828a3e"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "icons/notif-removed.png",
+      "sha256": "a01142da96ef617e724569a01e9c122f7c46061c27e93e26774467f6044abcf2"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "icons/ui-bell.svg",
+      "sha256": "e3f9fb855e1200db523f159ce0d8af55fd6909e3d94de3ede5b0580b3e04ca08"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "icons/ui-calendar.svg",
+      "sha256": "c85e1e99bff88637f6f243ce7650196253051e297636c8991424058a902def2d"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "icons/ui-moon.svg",
+      "sha256": "4969a21c5cf73b30b0118aa72560cf01a93a403a3f40ff22c4c690d46fa4c607"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "icons/ui-people.svg",
+      "sha256": "ee1f265a094218458872bc5b43a69cd75d5db0d2ad1d73fc668b2a45b41f617a"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "icons/ui-refresh.svg",
+      "sha256": "6c68ce480a9aa912604a333b3ff13970ef41531a2cc11594920731cb2a540a41"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "icons/ui-search.svg",
+      "sha256": "cb11fefffc3c0b39f4b337d3cd92b32dc171ca11d1758e9930ba2c37a8ac03b6"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "icons/ui-settings.svg",
+      "sha256": "cc0776611444270183d394fef1d92ce9270ebc417fd573fe0615fccd099bf145"
+    },
+    {
+      "project": "roblox-friend-tracker",
+      "file": "icons/ui-sun.svg",
+      "sha256": "1d89ea52e86319b092ece52f57b809467ac0972c65d2259851788bcebce98168"
+    },
+    {
+      "project": "spotify-downloader",
+      "file": "requirements.txt",
+      "sha256": "275aeb50b7953834744605592e32ae0437cbd162245534a0652300ee0701909b"
+    },
+    {
+      "project": "spotify-downloader",
+      "file": "backend/__init__.py",
+      "sha256": "19d6bc29e3ef5f2a23af31717716a4abfb37d0eabb4662ec9aa27b453325ba1e"
+    },
+    {
+      "project": "spotify-downloader",
+      "file": "backend/config.py",
+      "sha256": "31bb819655548de1ff86b0114ea4ea465456fb1ef443b4366aa23d80e8688fed"
+    },
+    {
+      "project": "spotify-downloader",
+      "file": "backend/downloader.py",
+      "sha256": "4d50635c25f5034a0e6b3eeece7c5c37513a1d67b065da65a239b08bfabf484d"
+    },
+    {
+      "project": "spotify-downloader",
+      "file": "backend/spotify_client.py",
+      "sha256": "fa176760e02d615b0b2e151e302ea17eaa78a6ae3843eb185adffa2bbaadaf74"
+    },
+    {
+      "project": "spotify-downloader",
+      "file": "backend/youtube_client.py",
+      "sha256": "c0a78d11b6c411d00740ffe9b10c073e83253b23b8dcb7016805e36c2da01b23"
+    }
+  ]
+}

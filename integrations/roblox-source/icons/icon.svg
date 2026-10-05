@@ -1,0 +1,18 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff7aa8"/>
+      <stop offset="1" stop-color="#ff4d82"/>
+    </linearGradient>
+    <clipPath id="r"><rect width="128" height="128" rx="28"/></clipPath>
+  </defs>
+  <g clip-path="url(#r)">
+    <rect width="128" height="128" fill="url(#g)"/>
+    <!-- arka kisi -->
+    <circle cx="46" cy="44" r="13" fill="#ffffff" fill-opacity="0.6"/>
+    <ellipse cx="46" cy="93" rx="26" ry="29" fill="#ffffff" fill-opacity="0.6"/>
+    <!-- on kisi -->
+    <circle cx="77" cy="42" r="17" fill="#ffffff"/>
+    <ellipse cx="77" cy="96" rx="32" ry="35" fill="#ffffff"/>
+  </g>
+</svg>

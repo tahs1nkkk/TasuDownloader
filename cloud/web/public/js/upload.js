@@ -1,13 +1,18 @@
 // Dosya ekleme sihirbazı.
 //
-// Akış üç adımlı ve hedef *önce* seçiliyor: (1) hangi site sekmesi, (2) hangi
-// kategori, (3) dosyalar. Böylece her yükleme doğrudan doğru yere iniyor —
-// eskiden önce "Other"a yükleyip sonra taşıyorduk, o fazladan tur ve "sonra
-// neredeydi?" belirsizliği kalktı. Yükleme sırasında pencere kapatılabilir, iş
-// arka planda sürer; biten dosyalara seçilen kategori işlenir ve sonda net bir
-// durum özeti ("tamamlandı" / "şunlar yüklenemedi: …") gösterilir.
+// Hedef *önce* seçiliyor, sonra dosyalar geliyor. "Tasu Arşiv"de (main) akış üç
+// adımlı: (1) hangi site sekmesi, (2) hangi kategori, (3) dosyalar. Diğer
+// arşivlerde site kavramı yok (yalnız dışarıdan dosya), o yüzden site adımı
+// atlanır ve sihirbaz doğrudan kategoriyle başlar (site sabiten "Other").
+// Böylece her yükleme doğrudan doğru yere iniyor — eskiden önce "Other"a
+// yükleyip sonra taşıyorduk, o fazladan tur ve "sonra neredeydi?" belirsizliği
+// kalktı. Yükleme sırasında pencere kapatılabilir, iş arka planda sürer; biten
+// dosyalara seçilen kategori işlenir, orijinali yüklenen dosyadan (ağ yok)
+// küçük resim üretilip depolanır ve sonda net bir durum özeti ("tamamlandı" /
+// "şunlar yüklenemedi: …") gösterilir.
 
 import { $, S, bwUploadHeaders, clear, dialog, el, fmtBytes, saveMeta, siteBrand } from "./core.js";
+import { thumbFromFile } from "./media.js";
 
 const MAX_PARALLEL = 2;
 
@@ -47,9 +52,12 @@ function putFile(file, site, onProgress) {
 
 export function openUpload(files, reload) {
   const input = $("#file-input");
+  // Site sekmeleri yalnız "Tasu Arşiv"e (main) özgü; diğer arşivlerde site
+  // adımı atlanır ve bayt anahtarı sabiten "Other" altına yazılır.
+  const hasSites = S.drive === "main";
   const state = {
-    step: 1,
-    site: null,
+    step: hasSites ? 1 : 2,
+    site: hasSites ? null : "Other",
     cat: "",
     queue: [...(files || [])].filter((f) => f.size > 0),
     running: 0,
@@ -131,6 +139,9 @@ export function openUpload(files, reload) {
             bar.style.width = "100%";
             if (result && result.key) {
               state.uploaded.push(result.key);
+              // Baytlar zaten elde: kapağı yerel dosyadan (ağ yok) üret ve
+              // /api/thumb'a yaz — ilk görüntülemede tam indirme fırtınası olmaz.
+              thumbFromFile(file, result.key);
               if (state.cat) {
                 const entry = S.meta.items[result.key] || (S.meta.items[result.key] = {});
                 entry.cat = state.cat;
@@ -160,10 +171,14 @@ export function openUpload(files, reload) {
 
       const renderSteps = () => {
         clear(steps);
-        ["Site", "Kategori", "Yükle"].forEach((label, i) => {
-          const n = i + 1;
+        // İç adım numaraları sabit (1=Site, 2=Kategori, 3=Yükle); non-main'de
+        // Site elenip görünen numara sıradaki konuma göre yeniden veriliyor.
+        const plan = hasSites
+          ? [[1, "Site"], [2, "Kategori"], [3, "Yükle"]]
+          : [[2, "Kategori"], [3, "Yükle"]];
+        plan.forEach(([n, label], i) => {
           const cls = n === state.step ? "on" : (n < state.step ? "past" : "");
-          steps.append(el("span", { class: `wz-step ${cls}` }, el("i", {}, String(n)), label));
+          steps.append(el("span", { class: `wz-step ${cls}` }, el("i", {}, String(i + 1)), label));
         });
       };
 
@@ -188,19 +203,20 @@ export function openUpload(files, reload) {
       const renderCat = () => {
         body.append(el("p", { class: "wz-hint" }, "Kategori seç (isteğe bağlı)."));
         const tree = el("div", { class: "wz-cats tree" });
-        const mk = (id, name, child) => el("button", {
+        const mk = (id, name, depth) => el("button", {
           type: "button",
-          class: `${state.cat === id ? "on" : ""} ${child ? "child" : ""}`,
+          class: state.cat === id ? "on" : "",
+          style: depth ? `padding-left:${12 + depth * 18}px` : "",
           onclick: () => { state.cat = id; render(); }
         }, name);
-        tree.append(mk("", "Kategorisiz", false));
+        tree.append(mk("", "Kategorisiz", 0));
         const cats = S.meta.cats.filter((c) => c.drive === S.drive);
-        for (const parent of cats.filter((c) => !c.parent)) {
-          tree.append(mk(parent.id, parent.name, false));
-          for (const sub of cats.filter((c) => c.parent === parent.id)) {
-            tree.append(mk(sub.id, sub.name, true));
-          }
-        }
+        // Her seviyede alt kategori olabilir; ağacı derinliğe göre girintili çiz.
+        const addBranch = (cat, depth) => {
+          tree.append(mk(cat.id, cat.name, depth));
+          for (const kid of cats.filter((c) => c.parent === cat.id)) addBranch(kid, depth + 1);
+        };
+        for (const parent of cats.filter((c) => !c.parent)) addBranch(parent, 0);
         body.append(tree);
       };
 
@@ -208,10 +224,15 @@ export function openUpload(files, reload) {
         const catName = state.cat
           ? (S.meta.cats.find((c) => c.id === state.cat)?.name || "Kategori")
           : "Kategorisiz";
-        const brand = siteBrand(state.site);
-        body.append(el("div", { class: "wz-summary" },
-          el("span", { class: "wz-mark sm", html: brand.mark }),
-          el("span", { class: "wz-sum-txt" }, `${siteLabel(state.site)} · ${catName}`)));
+        if (hasSites) {
+          const brand = siteBrand(state.site);
+          body.append(el("div", { class: "wz-summary" },
+            el("span", { class: "wz-mark sm", html: brand.mark }),
+            el("span", { class: "wz-sum-txt" }, `${siteLabel(state.site)} · ${catName}`)));
+        } else {
+          body.append(el("div", { class: "wz-summary" },
+            el("span", { class: "wz-sum-txt" }, catName)));
+        }
 
         const drop = el("div", { class: "drop" },
           el("b", {}, "Dosyaları buraya sürükle"),
@@ -249,7 +270,9 @@ export function openUpload(files, reload) {
             btn("İleri", "primary", () => { state.step = 2; render(); }, !state.site));
         } else if (state.step === 2) {
           foot.append(
-            btn("Geri", "", () => { state.step = 1; render(); }),
+            hasSites
+              ? btn("Geri", "", () => { state.step = 1; render(); })
+              : btn("Vazgeç", "", () => close(null)),
             spacer,
             btn("İleri", "primary", () => { state.step = 3; render(); }));
         } else {
@@ -281,8 +304,9 @@ export function openUpload(files, reload) {
 
 // Sayfanın herhangi bir yerine dosya bırakılınca sihirbaz kendiliğinden açılır.
 //
-// Dosyalar kuyruğa alınır ama sihirbaz yine 1. adımdan (site seçimi) başlar:
-// "önce hedefi seç" kuralı bozulmaz, sürükleyip bırakmanın kolaylığı da kalır.
+// Dosyalar kuyruğa alınır ama sihirbaz yine baştan (main'de site, diğerlerinde
+// kategori) başlar: "önce hedefi seç" kuralı bozulmaz, sürükle-bırak kolaylığı
+// da kalır.
 // "Yalnız dışarıdan gelen dosya" şartı iki kapıdan geçiyor: dataTransfer'da
 // gerçekten Files olacak VE sürükleme bu sayfada başlamamış olacak — ızgaradaki
 // bir kapağı tutup sürüklemek yükleme penceresini açmasın.

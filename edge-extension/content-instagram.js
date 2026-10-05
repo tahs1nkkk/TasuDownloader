@@ -1,6 +1,9 @@
+// Generated from shared/sites/instagram.js; run npm run build:shared. Do not edit.
+// Shared source; platform packages are generated from this file.
 (() => {
   if (window.__rgInstagramLoaded) return;
   window.__rgInstagramLoaded = true;
+  const life = globalThis.RG_LIFECYCLE?.create("instagram") || { listen:(t,...a)=>t.addEventListener(...a), unlisten:(t,...a)=>t.removeEventListener(...a), MutationObserver, setInterval:globalThis.setInterval.bind(globalThis), clearInterval:globalThis.clearInterval.bind(globalThis), raf:globalThis.requestAnimationFrame.bind(globalThis), cancelAnimationFrame:globalThis.cancelAnimationFrame.bind(globalThis) };
   console.info("%c[rg-ig] content script yüklendi", "color:#db2777;font-weight:bold", location.href);
 
   const ALL_ID = "rg-ig-all";
@@ -25,6 +28,7 @@
   }
 
   function setStatus(text, level = "idle") {
+    if (globalThis.RG_UI) { globalThis.RG_UI.toast(text, level); return; }
     const el = document.getElementById(STATUS_ID);
     if (!el) return;
     if (statusTimer) clearTimeout(statusTimer);
@@ -66,7 +70,7 @@
         .rg-ig-btn {
           position: fixed; z-index: 2147483647;
           width: 44px; height: 44px; border: 0; border-radius: 999px; padding: 0;
-          display: none; place-items: center; color: #fff;
+          display: grid; place-items: center; color: #fff; opacity: 0; pointer-events: none;
           box-shadow: 0 8px 22px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.16);
           cursor: pointer; transition: background .12s, transform .12s;
         }
@@ -75,6 +79,10 @@
         #${ONE_ID} { background: rgba(37,99,235,.92); }
         #${ONE_ID}:hover { background: rgba(37,99,235,1); transform: scale(1.05); }
         .rg-ig-btn:disabled { opacity: .55; cursor: wait; }
+        .rg-ig-btn[data-visible="1"] { opacity: 1; pointer-events: auto; }
+        .rg-ig-btn[data-visible="0"] { opacity: 0; pointer-events: none; }
+        #${WEB_ID}[data-visible="1"] { opacity: 1; pointer-events: auto !important; }
+        #${WEB_ID}[data-visible="0"] { opacity: 0; pointer-events: none !important; }
         .rg-ig-btn svg { width: 55%; height: 55%; pointer-events: none; }
         #${MENU_ID} {
           position: fixed; z-index: 2147483647; min-width: 150px;
@@ -116,7 +124,7 @@
       all.title = "Posttaki tüm medyayı indir"; all.setAttribute("aria-label", "Posttaki tüm medyayı indir");
       all.innerHTML = stackIcon();
       all.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); });
-      all.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); const c = ctx; console.info("[rg-ig] TÜMÜ/GÖRSEL buton tıklandı", c); withFolder(e.currentTarget, folder => (c && c.kind === "highlight" ? doStoryImage(e.currentTarget, folder) : doAll(e.currentTarget, folder))); });
+      all.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); void doAll(e.currentTarget); });
       document.documentElement.appendChild(all);
     }
     // Özellik D — indirme butonunun altına "web listesine ekle". Yalnızca gerçek
@@ -177,11 +185,11 @@
       const close = (e) => {
         if (menu.contains(e.target)) return;
         closeFolderMenu();
-        document.removeEventListener("click", close, true);
-        window.removeEventListener("scroll", close, true);
+        life.unlisten(document, "click", close, true);
+        life.unlisten(window, "scroll", close, true);
       };
-      document.addEventListener("click", close, true);
-      window.addEventListener("scroll", close, true);
+      life.listen(document, "click", close, true);
+      life.listen(window, "scroll", close, true);
     }, 0);
   }
 
@@ -282,13 +290,25 @@
     return m ? m[1] : "";
   }
 
+  const mediaInfoCache = new Map();
   async function fetchMediaInfo(mediaId) {
     if (!mediaId) throw new Error("IG02 mediaId boş (shortcode çözülemedi)");
+    const cached = mediaInfoCache.get(mediaId);
+    if (cached && Date.now() - cached.time < 120000) return cached.promise;
+    const promise = requestMediaInfo(mediaId);
+    const entry = { time: Date.now(), promise, data: null };
+    mediaInfoCache.set(mediaId, entry);
+    if (mediaInfoCache.size > 60) mediaInfoCache.delete(mediaInfoCache.keys().next().value);
+    try { entry.data = await promise; return entry.data; }
+    catch (error) { mediaInfoCache.delete(mediaId); throw error; }
+  }
+
+  async function requestMediaInfo(mediaId) {
     const url = `https://www.instagram.com/api/v1/media/${mediaId}/info/`;
     console.info("[rg-ig] fetchMediaInfo", { mediaId, url });
     let res;
     try {
-      res = await fetch(url, { headers: { "X-IG-App-ID": IG_APP_ID }, credentials: "include", cache: "no-store" });
+      res = await fetch(url, { headers: { "X-IG-App-ID": IG_APP_ID }, credentials: "include", cache: "no-store", signal: AbortSignal.timeout(12000) });
     } catch (e) {
       throw new Error(`IG03 ağ hatası: ${e.message || e}`);
     }
@@ -296,15 +316,41 @@
     return res.json();
   }
 
-  async function fetchProfileHd(username) {
-    const res = await fetch(
-      `https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`,
-      { headers: { "X-IG-App-ID": IG_APP_ID }, credentials: "include", cache: "no-store" }
-    );
-    if (!res.ok) throw new Error(`IG04 profil API ${res.status}`);
-    const j = await res.json();
-    const u = j?.data?.user;
-    return u?.profile_pic_url_hd || u?.profile_pic_url || "";
+  const profileCache = new Map();
+  let profileRetryAt = 0;
+  async function fetchProfileHd(username, avatar) {
+    const fallback = bestImgSrc(avatar);
+    const cached = profileCache.get(username);
+    if (cached && cached.expires > Date.now()) return cached.promise;
+    const useVisible = () => {
+      if (!/^https?:\/\//i.test(fallback)) throw new Error("IG04 profil kaynağına erişilemiyor; biraz sonra tekrar dene.");
+      return { url: fallback, visibleOnly: true };
+    };
+    if (Date.now() < profileRetryAt) return useVisible();
+    const entry = { expires: Date.now() + 600000 };
+    entry.promise = (async () => {
+      try {
+        const res = await fetch(
+          `https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`,
+          { headers: { "X-IG-App-ID": IG_APP_ID }, credentials: "include", cache: "no-store", signal: AbortSignal.timeout(1500) }
+        );
+        if (res.status === 429) {
+          const retry = res.headers.get("Retry-After");
+          const ms = retry && /^\d+$/.test(retry) ? Number(retry) * 1000 : Date.parse(retry || "") - Date.now();
+          profileRetryAt = Date.now() + (Number.isFinite(ms) && ms > 0 ? ms : 300000);
+        }
+        if (!res.ok) throw new Error(`IG04 profil API ${res.status}`);
+        const u = (await res.json())?.data?.user;
+        const url = u?.profile_pic_url_hd || u?.profile_pic_url;
+        return url ? { url, visibleOnly: false } : useVisible();
+      } catch {
+        entry.expires = Math.max(Date.now() + 30000, profileRetryAt);
+        return useVisible();
+      }
+    })();
+    profileCache.set(username, entry);
+    if (profileCache.size > 40) profileCache.delete(profileCache.keys().next().value);
+    return entry.promise;
   }
 
   async function fetchHighlightItems(id) {
@@ -359,7 +405,15 @@
       );
       if (found) return found;
     }
-    return item.carousel_media[0];
+    const direct = visibleEl instanceof HTMLVideoElement ? directUrlFromVideo(visibleEl) : bestImgSrc(visibleEl);
+    const key = value => { try { return new URL(value).pathname; } catch { return ""; } };
+    const exact = direct && item.carousel_media.find(ci => [...(ci.image_versions2?.candidates || []), ...(ci.video_versions || [])].some(c => key(c.url) === key(direct)));
+    if (exact) return exact;
+    const slide = visibleEl?.closest('[aria-posinset],[data-slide-index]');
+    const index = slide?.hasAttribute("aria-posinset") ? Number(slide.getAttribute("aria-posinset")) - 1 : Number(slide?.getAttribute("data-slide-index") ?? -1);
+    if (index >= 0 && item.carousel_media[index]) return item.carousel_media[index];
+    // Never silently save slide one when a different visible slide cannot be matched.
+    return direct ? (visibleEl instanceof HTMLVideoElement ? { video_versions: [{ url: direct }] } : { image_versions2: { candidates: [{ url: direct }] } }) : null;
   }
 
   // ── DOM helpers ───────────────────────────────────────────────────────────
@@ -377,10 +431,8 @@
     if (!el) return null;
     return [...el.querySelectorAll("img, video")]
       .map(m => {
-        const r = m.getBoundingClientRect();
-        const visW = Math.max(0, Math.min(r.right, window.innerWidth) - Math.max(r.left, 0));
-        const visH = Math.max(0, Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0));
-        return { m, area: visW * visH };
+        const r = visibleMediaBounds(m);
+        return { m, area: r.width * r.height };
       })
       .filter(i => i.area > 8000)
       .sort((a, b) => b.area - a.area)[0]?.m || null;
@@ -425,7 +477,7 @@
     if (!el) return null;
     return [...el.querySelectorAll("img, video")]
       .map(m => {
-        const r = m.getBoundingClientRect();
+        const r = visibleMediaBounds(m);
         const visW = Math.max(0, Math.min(r.right, window.innerWidth) - Math.max(r.left, 0));
         const visH = Math.max(0, Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0));
         const centerBias = Math.abs((r.left + r.right) / 2 - window.innerWidth / 2);
@@ -437,14 +489,67 @@
 
   // ── Context detection ─────────────────────────────────────────────────────
 
+  function mediaRect(media) {
+    const r = media.getBoundingClientRect();
+    const width = media.videoWidth || media.naturalWidth;
+    const height = media.videoHeight || media.naturalHeight;
+    if (!width || !height || !/^(contain|scale-down)$/.test(getComputedStyle(media).objectFit)) return r;
+    const scale = Math.min(r.width / width, r.height / height);
+    const w = width * scale, h = height * scale;
+    const left = r.left + (r.width - w) / 2, top = r.top + (r.height - h) / 2;
+    return { left, top, right: left + w, bottom: top + h, width: w, height: h };
+  }
+
+  // Carousel siblings can still be inside the browser viewport but clipped by
+  // the post's overflow container. Account for that container, not just the tab.
+  function visibleMediaBounds(media) {
+    const r = mediaRect(media);
+    let left = Math.max(0, r.left), top = Math.max(0, r.top), right = Math.min(innerWidth, r.right), bottom = Math.min(innerHeight, r.bottom);
+    for (let node = media; node && node !== document.documentElement; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (node.getAttribute("aria-hidden") === "true" || style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return { left, top, right: left, bottom: top, width: 0, height: 0 };
+      if (node === media) continue;
+      const clip = node.getBoundingClientRect();
+      if (/hidden|clip|auto|scroll/.test(style.overflowX)) { left = Math.max(left, clip.left); right = Math.min(right, clip.right); }
+      if (/hidden|clip|auto|scroll/.test(style.overflowY)) { top = Math.max(top, clip.top); bottom = Math.min(bottom, clip.bottom); }
+    }
+    return { left, top, right, bottom, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+  }
+
+  function storyMedia() {
+    const scope = activeDialog() || document.querySelector("main") || document;
+    let best = null, score = 0;
+    for (const media of scope.querySelectorAll("video,img")) {
+      if (media.closest('[aria-hidden="true"],#rg-feedback-host')) continue;
+      const r = mediaRect(media);
+      if (r.width < 150 || r.height < 180 || r.bottom <= 0 || r.top >= innerHeight) continue;
+      const style = getComputedStyle(media);
+      if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0) continue;
+      const area = Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0)) * Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0));
+      const next = area / (1 + Math.abs((r.left + r.right) / 2 - innerWidth / 2) / innerWidth);
+      if (next > score) { best = media; score = next; }
+    }
+    return best;
+  }
+
+  function persistentButtons() {
+    return settings.buttonVisibility === "always" || globalThis.RG_SETTINGS.isTouchDevice() || !!document.fullscreenElement;
+  }
+  function containsPoint(media, x, y) {
+    if (!media?.isConnected) return false;
+    const r = visibleMediaBounds(media);
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  }
+
   function detectContext(x, y) {
     // Never on the notifications / activity page — those are tiny preview
     // thumbnails, not downloadable post views.
     if (/^\/notifications(?:\/|$)/i.test(location.pathname)) return null;
 
-    // Story / highlight viewer — any cursor position counts
+    // Anchor to the rendered story media, never an unrelated header/avatar.
     if (/^\/stories\//i.test(location.pathname)) {
-      return { kind: "highlight" };
+      const media = storyMedia();
+      return media && (persistentButtons() || containsPoint(media, x, y)) ? { kind: "highlight", anchor: media } : null;
     }
 
     // Profile avatar — checked by rect (the <img> is pointer-events:none, so it
@@ -464,6 +569,17 @@
     const host = mediaHostForPoint(stack);
     if (host === false) return null;
     const scope = host || document;
+
+    // Only the media already rendered in the user's open conversation. No chat
+    // history/API crawling, expired-message recovery or background collection.
+    if (/^\/direct(?:\/|$)/i.test(location.pathname)) {
+      const area = host || document.querySelector("main,[role='main']") || document;
+      const media = [...area.querySelectorAll("img,video")].find(m => {
+        const r = visibleMediaBounds(m);
+        return r.width >= 100 && r.height >= 100 && containsPoint(m, x, y) && !(m instanceof HTMLImageElement && isAvatarImg(m));
+      });
+      return media ? { kind: "direct", anchor: media, article: media.parentElement } : null;
+    }
 
     // Profile avatar
     for (const el of stack) {
@@ -492,8 +608,7 @@
         const sc = shortcodeFromHref(link.href);
         if (sc) {
           const art = (host && (link.closest("article") || host)) || link.closest("article") || link;
-          // A bare grid thumbnail (not inside an <article>) may be a carousel we
-          // can't detect from the tile → always offer "download all" there.
+          // Grid placement alone is not evidence of a carousel.
           const grid = !link.closest("article");
           return { kind: "post", anchor: visibleMediaIn(art) || largestMediaIn(art) || link, article: art, shortcode: sc, grid };
         }
@@ -516,35 +631,18 @@
     return null;
   }
 
-  // Locate the story viewer's header (username text) to place the button under it
-  function storyHeaderRect() {
-    const links = [...document.querySelectorAll("a[href^='/']")]
-      .filter(a => {
-        const r = a.getBoundingClientRect();
-        return r.width > 0 && r.height > 0 && r.top < 170 && r.left < window.innerWidth * 0.6 && (a.textContent || "").trim();
-      })
-      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-    return links[0]?.getBoundingClientRect() || null;
-  }
-
   // A carousel (multi-media) post — used to decide whether to show "download all".
+  const carouselCache = new WeakMap();
   function isCarouselPost(scope) {
     if (!scope) return false;
-    // Explicit carousel container or a next/prev navigation button.
-    if (scope.querySelector('[aria-roledescription="carousel"]')) return true;
-    if (scope.querySelector('button[aria-label="Next"], button[aria-label="Go back"]')) return true;
-    // Language-independent: a row of 2+ tiny, roughly-square pagination dots.
-    for (const row of scope.querySelectorAll("div")) {
-      const kids = row.children;
-      if (kids.length < 2 || kids.length > 12) continue;
-      let dots = 0;
-      for (const k of kids) {
-        const r = k.getBoundingClientRect();
-        if (r.width > 0 && r.width <= 14 && Math.abs(r.width - r.height) <= 4) dots++;
-      }
-      if (dots >= 2 && dots === kids.length) return true;
-    }
-    return false;
+    const known = mediaInfoCache.get(shortcodeToMediaId(ctx?.shortcode || ""))?.data?.items?.[0];
+    if (known) return (known.carousel_media?.length || 1) > 1;
+    const cached = carouselCache.get(scope);
+    if (cached && Date.now() - cached.time < 1000) return cached.value;
+    const value = !!scope.querySelector('[aria-roledescription="carousel"],button[aria-label="Next"],button[aria-label="İleri"]') ||
+      [...scope.querySelectorAll("svg[aria-label]")].some(el => /carousel|multiple|çoklu|birden fazla|döngü/i.test(el.getAttribute("aria-label")));
+    carouselCache.set(scope, { value, time: Date.now() });
+    return value;
   }
 
   // ── Positioning ───────────────────────────────────────────────────────────
@@ -555,8 +653,14 @@
     const web = document.getElementById(WEB_ID);
     if (!one || !all) return;
 
-    const hideWeb = () => { if (web) web.style.display = "none"; };
-    const hide = () => { one.style.display = "none"; all.style.display = "none"; hideWeb(); };
+    const visible = (button, show) => {
+      if (!button) return;
+      button.dataset.visible = show ? "1" : "0";
+      button.setAttribute("aria-hidden", String(!show)); button.tabIndex = show ? 0 : -1;
+      if (button === web) button.style.display = "grid";
+    };
+    const hideWeb = () => visible(web, false);
+    const hide = () => { visible(one, false); visible(all, false); hideWeb(); };
     if (!settings.instagramButtons || !ctx) { hide(); return; }
 
     const size = clamp(Number(settings.buttonSize) || 44, 28, 72);
@@ -565,11 +669,14 @@
     let left, top, showAll = false, webMedia = null;
 
     if (ctx.kind === "highlight") {
-      const hr = storyHeaderRect();
-      left = hr ? hr.left : 16;
-      top = hr ? hr.bottom + 8 : 72;
+      if (!ctx.anchor?.isConnected) ctx.anchor = storyMedia();
+      if (!ctx.anchor) { hide(); return; }
+      const r = mediaRect(ctx.anchor);
+      if (r.bottom <= 0 || r.right <= 0 || r.left >= innerWidth || r.top >= innerHeight) { hide(); return; }
+      left = r.left + 10;
+      top = r.top + 10;
       // Blue auto-detects photo+music → image; no pink needed in stories.
-    } else if (ctx.kind === "avatar") {
+    } else if (ctx.kind === "avatar" || ctx.kind === "direct") {
       if (!ctx.anchor?.isConnected) { hide(); return; }
       const r = ctx.anchor.getBoundingClientRect();
       if (r.width < 40) { hide(); return; }
@@ -578,15 +685,15 @@
       const art = ctx.article;
       if (!art?.isConnected) { hide(); return; }
       const ar = art.getBoundingClientRect();
-      const mediaBox = visibleMediaBoxIn(art);
-      const media = mediaBox?.m || visibleMediaIn(art) || ctx.anchor;
+      const media = ctx.anchor?.isConnected && ctx.anchor.matches("img,video") ? ctx.anchor : visibleMediaBoxIn(art)?.m || visibleMediaIn(art);
+      if (media) ctx.anchor = media;
       webMedia = media;
-      const mr = (media || art).getBoundingClientRect();
+      const mr = mediaRect(media || art);
       // Skip tiny thumbnails (notification/comment previews aren't real posts).
-      if (mr.width < 70 || mr.height < 70) { hide(); return; }
+      if (mr.width < 70 || mr.height < 70 || mr.bottom <= 0 || mr.top >= innerHeight || mr.right <= 0 || mr.left >= innerWidth) { hide(); return; }
       const mediaBottom = Math.min(mr.bottom, ar.bottom, window.innerHeight);
       const carousel = isCarouselPost(art);
-      showAll = Boolean(ctx.grid) || carousel;
+      showAll = carousel;
       // Carousels use the stable article column so the button does not drift
       // while sliding. Reels/single posts use the rendered media box; this keeps
       // the button attached when the browser window is narrow.
@@ -594,8 +701,7 @@
       const reservedWidth = showAll ? size * 2 + 18 : size + 8;
       left = clampBox(anchorLeft + 10, Math.max(mr.left + 8, 8), Math.min(mr.right, window.innerWidth) - reservedWidth);
       top = clampBox(mr.top + 10, Math.max(ar.top + 8, 8), mediaBottom - size - 8);
-      // "Download all" (pink): carousels (dots), or any grid thumbnail (may be
-      // a carousel we can't detect from the tile). Single post pages → hidden.
+      // Only confirmed carousel evidence enables multi-download.
     }
 
     left = clamp(left, 8, window.innerWidth - (showAll ? size * 2 + 18 : size + 8));
@@ -604,13 +710,15 @@
     one.style.left = `${left}px`;
     one.style.top = `${top}px`;
     one.style.display = "grid";
+    visible(one, true);
 
     if (showAll) {
       all.style.left = `${left + size + 8}px`;
       all.style.top = `${top}px`;
       all.style.display = "grid";
+      visible(all, true);
     } else {
-      all.style.display = "none";
+      visible(all, false);
     }
 
     // Web listesi butonu — yalnız gerçek gönderi (post/reel), ızgara değil.
@@ -621,6 +729,7 @@
       web.style.left = `${left}px`;
       web.style.top = `${clamp(top + size + 8, 8, window.innerHeight - size - 8)}px`;
       web.style.display = "grid";
+      visible(web, true);
       web.__igMedia = webMedia;
     } else {
       hideWeb();
@@ -629,21 +738,10 @@
 
   function scheduleHide() {
     if (hideTimer) clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => {
-      const one = document.getElementById(ONE_ID);
-      const all = document.getElementById(ALL_ID);
-      const web = document.getElementById(WEB_ID);
-      const menu = document.getElementById(MENU_ID);
-      const webMenu = document.getElementById("rg-web-menu");
-      // :hover never matches on touch, so this would hide the buttons the user
-      // is about to tap. There is no pointer to leave, so nothing to hide.
-      if (globalThis.RG_SETTINGS.isTouchDevice()) return;
-      if (one?.matches(":hover") || all?.matches(":hover") || web?.matches(":hover") || menu || webMenu) return;
-      ctx = null;
-      if (one) one.style.display = "none";
-      if (all) all.style.display = "none";
-      if (web) web.style.display = "none";
-    }, 110);
+    hideTimer = null;
+    if (persistentButtons() || globalThis.RG_UI?.busy || document.getElementById(MENU_ID) || document.getElementById("rg-folder-menu") || document.getElementById("rg-web-menu")) return;
+    ctx = null;
+    positionButtons(); // Opacity transition starts immediately; no resetting timer.
   }
 
   // ── Downloads ─────────────────────────────────────────────────────────────
@@ -706,27 +804,33 @@
     console.info("[rg-ig] doSingle", { kind: c.kind, shortcode: c.shortcode, mediaId: c.shortcode ? shortcodeToMediaId(c.shortcode) : "", username: c.username, folder });
     try {
       if (c.kind === "avatar") {
-        const url = await fetchProfileHd(c.username);
-        if (!url) throw new Error("IG05 profil fotoğrafı URL'i yok");
+        const result = await fetchProfileHd(c.username, c.anchor);
+        await sendDownload([result.url], false, folder);
+        setStatus(result.visibleOnly ? "Görünen profil fotoğrafı indiriliyor; HD kaynağa erişilemedi." : "Profil fotoğrafı indirmesi başlatıldı.", "idle");
+        return;
+      }
+      if (c.kind === "direct") {
+        const url = c.anchor instanceof HTMLVideoElement ? directUrlFromVideo(c.anchor) : bestImgSrc(c.anchor);
+        if (!/^https?:\/\//i.test(url)) throw new Error("IG10 bu medyanın doğrudan dosya adresi yok. Videoyu oynatıp tekrar dene.");
         await sendDownload([url], false, folder);
-        setStatus("Profil fotoğrafı indirildi ✓", "done");
+        setStatus("Mesajdaki medya indirmesi başlatıldı.", "idle");
         return;
       }
 
       if (c.kind === "highlight") {
         await downloadCurrentStory(folder);
-        setStatus("İndirildi ✓", "done");
+        setStatus("İndirme başlatıldı.", "idle");
         return;
       }
 
       // Post/reel: resolve via API so videos (reels) work, not just posters
       const info = await fetchMediaInfo(shortcodeToMediaId(c.shortcode));
-      const visible = visibleMediaIn(c.article || document);
+      const visible = visibleMediaIn(c.article || document) || c.anchor;
       const node = matchCarouselItem(info, visible);
       const url = bestUrlFromNode(node);
       if (!url) throw new Error("IG05 medya URL'i çıkarılamadı");
       await sendDownload([url], false, folder);
-      setStatus("İndirildi ✓", "done");
+      setStatus("İndirme başlatıldı.", "idle");
     } catch (err) {
       console.error("[rg-ig] doSingle HATA:", err);
       setStatus(`Hata: ${err.message || err}`, "error");
@@ -740,12 +844,20 @@
     const c = ctx;
     if (!c || c.kind !== "post") { setStatus("Hata: IG01 post hedefi yok", "error"); return; }
     btn.disabled = true;
-    setStatus("Post indiriliyor…", "idle");
+    setStatus("Önizleme hazırlanıyor…", "idle");
     console.info("[rg-ig] doAll", { shortcode: c.shortcode, folder });
     try {
       const info = await fetchMediaInfo(shortcodeToMediaId(c.shortcode));
-      const urls = allUrlsFromInfo(info);
+      let urls = allUrlsFromInfo(info);
       if (!urls.length) throw new Error("IG05 medya URL'i çıkarılamadı");
+      const nodes = info?.items?.[0]?.carousel_media || [info?.items?.[0]];
+      if (globalThis.RG_UI) {
+        const selected = await globalThis.RG_UI.chooseMedia(btn, nodes.filter(Boolean).map(node => ({ url: bestUrlFromNode(node), thumbnail: node.image_versions2?.candidates?.[0]?.url, kind: node.video_versions?.length ? "video" : "image" })));
+        if (!selected) return;
+        urls = selected.map(item => item.url);
+      }
+      if (folder === undefined) folder = window.rgChooseFolder ? await window.rgChooseFolder() : "";
+      if (folder === null) return;
       await sendDownload(urls, true, folder);
       setStatus(`${urls.length} medya indiriliyor ✓`, "done");
     } catch (err) {
@@ -1065,43 +1177,58 @@
 
   // ── Events ────────────────────────────────────────────────────────────────
 
-  let mmPending = false, lastX = 0, lastY = 0;
-  function onMove(e) {
-    lastX = e.clientX; lastY = e.clientY;
-    if (mmPending) return;
-    mmPending = true;
-    requestAnimationFrame(() => {
-      mmPending = false;
-      if (!settings.instagramButtons) return;
-      ensureUi();
-      const one = document.getElementById(ONE_ID);
-      const all = document.getElementById(ALL_ID);
-      const menu = document.getElementById(MENU_ID);
-      const stack = document.elementsFromPoint(lastX, lastY);
-      if ((one && stack.includes(one)) || (all && stack.includes(all)) || menu) {
-        if (hideTimer) clearTimeout(hideTimer);
-        return;
-      }
-      const found = detectContext(lastX, lastY);
-      if (found) {
-        if (hideTimer) clearTimeout(hideTimer);
-        ctx = found;
-        positionButtons();
-      } else {
-        scheduleHide();
-      }
-    });
+  let frame = 0, lastX = innerWidth / 2, lastY = innerHeight / 2, contextDirty = true;
+  let contextURL = location.href, infoTimer = null, probedCode = "";
+  function queueFrame() {
+    if (frame || document.hidden) return;
+    frame = life.raf(updateContext);
   }
-  document.addEventListener("mousemove", onMove, { passive: true, capture: true });
-  document.addEventListener("pointermove", onMove, { passive: true, capture: true });
-  window.addEventListener("scroll", () => requestAnimationFrame(positionButtons), { passive: true, capture: true });
-  window.addEventListener("resize", () => requestAnimationFrame(positionButtons));
-
-  setInterval(() => {
-    if (document.hidden || !settings.instagramButtons) return;
-    ensureUi();
-    if (ctx) positionButtons();
-  }, 800);
+  function probeCarousel(c) {
+    if (!c?.shortcode || probedCode === c.shortcode) return;
+    clearTimeout(infoTimer);
+    probedCode = c.shortcode;
+    infoTimer = setTimeout(async () => {
+      if (ctx?.shortcode !== c.shortcode) return;
+      try {
+        await fetchMediaInfo(shortcodeToMediaId(c.shortcode));
+        if (ctx?.shortcode === c.shortcode) positionButtons();
+      } catch { /* Unknown stays single; a click reports any real API error. */ }
+    }, 220);
+  }
+  function updateContext() {
+    frame = 0;
+    if (!document.getElementById(ONE_ID)) ensureUi();
+    if (contextURL !== location.href) { ctx = null; contextDirty = true; contextURL = location.href; }
+    if (!settings.instagramButtons) { ctx = null; positionButtons(); return; }
+    if (globalThis.RG_UI?.busy || document.getElementById(MENU_ID) || document.getElementById("rg-folder-menu") || document.getElementById("rg-web-menu")) return;
+    const stack = document.elementsFromPoint(lastX, lastY);
+    if (stack.some(el => [ONE_ID, ALL_ID, WEB_ID].includes(el.id) && el.dataset.visible !== "0")) return;
+    // Moving within the same media needs no tree scan, layout writes or API call.
+    if (!contextDirty && ctx && containsPoint(ctx.anchor, lastX, lastY)) return;
+    contextDirty = false;
+    let found = detectContext(lastX, lastY);
+    if (found && !persistentButtons() && !containsPoint(found.anchor, lastX, lastY)) found = null;
+    if (found) { ctx = found; positionButtons(); probeCarousel(found); }
+    else {
+      clearTimeout(infoTimer); probedCode = "";
+      if (persistentButtons()) { ctx = null; positionButtons(); }
+      else scheduleHide();
+    }
+  }
+  function onMove(event) { lastX = event.clientX; lastY = event.clientY; queueFrame(); }
+  life.listen(document, typeof PointerEvent === "function" ? "pointermove" : "mousemove", onMove, { passive: true, capture: true });
+  life.listen(document, "pointerout", (event) => { if (!event.relatedTarget) scheduleHide(); }, { passive: true });
+  const invalidate = () => { contextDirty = true; queueFrame(); };
+  life.listen(window, "scroll", invalidate, { passive: true, capture: true });
+  life.listen(window, "resize", invalidate, { passive: true });
+  life.listen(document, "fullscreenchange", invalidate);
+  life.listen(document, "visibilitychange", () => { if (!document.hidden) invalidate(); });
+  const observer = new life.MutationObserver((records) => {
+    if (records.some(record => !record.target.closest?.('[id^="rg-"],.rg-ig-btn'))) invalidate();
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["src", "srcset", "poster", "aria-hidden", "style", "class"] });
+  life.listen(document, "transitionend", invalidate, { passive: true, capture: true });
+  life.listen(document, "animationend", invalidate, { passive: true, capture: true });
 
   // ── Settings ──────────────────────────────────────────────────────────────
 
@@ -1109,11 +1236,13 @@
     chrome.storage.local.get(SETTINGS_KEY, items => {
       settings = { ...DEFAULT_SETTINGS, ...(items?.[SETTINGS_KEY] || {}) };
       ensureUi();
+      invalidate();
     });
   }
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local" || !changes[SETTINGS_KEY]) return;
     settings = { ...DEFAULT_SETTINGS, ...(changes[SETTINGS_KEY].newValue || {}) };
+    invalidate();
   });
 
   chrome.runtime.onMessage.addListener((message) => {
@@ -1123,4 +1252,5 @@
   });
 
   loadSettings();
+  life.onResume = invalidate;
 })();

@@ -1,9 +1,13 @@
+// Generated from shared/core/settings.js; run npm run build:shared. Do not edit.
+// Shared source; platform packages are generated from this file.
 (function initRgSettings(root, factory) {
-  const api = factory();
+  const sites = typeof module === "object" && module.exports ? require("./sites.js") : root.RG_SITES;
+  const api = factory(sites);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.RG_SETTINGS = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, () => {
+})(typeof globalThis !== "undefined" ? globalThis : this, (sites) => {
   "use strict";
+  if (!sites) throw new Error("Load common/sites.js before common/settings.js.");
 
   const SETTINGS_KEY = "tasuDownloaderSettings";
   // Eski kurulumlar ayarlarını bu anahtarın altında sakladı; background.js
@@ -67,18 +71,7 @@
   }
 
   function siteFromUrl(value) {
-    try {
-      const host = new URL(value).hostname.toLowerCase();
-      if (host === "redgifs.com" || host.endsWith(".redgifs.com")) return "RedGifs";
-      if (host === "reddit.com" || host.endsWith(".reddit.com")) return "Reddit";
-      if (host === "instagram.com" || host.endsWith(".instagram.com")) return "Instagram";
-      if (host === "scrolller.com" || host.endsWith(".scrolller.com")) return "Scrolller";
-      if (host === "coomer.st" || host.endsWith(".coomer.st")) return "Coomer";
-      if (host === "onlyfans.com" || host.endsWith(".onlyfans.com")) return "OnlyFans";
-    } catch {
-      // Unknown or incomplete URL.
-    }
-    return "Other";
+    return sites.fromUrl(value)?.name || "Other";
   }
 
   function mediaCategoryFromUrl(value) {

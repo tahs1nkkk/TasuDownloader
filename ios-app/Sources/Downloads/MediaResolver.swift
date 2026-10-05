@@ -136,78 +136,9 @@ actor MediaResolver {
         return Self.scrolllerMediaURLs(fromHTML: raw)
     }
 
-    /// HTML'den adres çıkarma — ayrı tutuldu ki ağ olmadan da akıl yürütülebilsin.
+    /// Uses the exact same parser as Edge and Orion; networking stays native.
     static func scrolllerMediaURLs(fromHTML raw: String) -> [String] {
-        // Adresler sayfaya JSON içinde kaçışlı gömülüyor; düzleştirilmeden
-        // ne meta etiketi ne de genel tarama tutar.
-        let html = raw
-            .replacingOccurrences(of: "\\u002f", with: "/", options: [.caseInsensitive])
-            .replacingOccurrences(of: "\\/", with: "/")
-            .replacingOccurrences(of: "&amp;", with: "&", options: [.caseInsensitive])
-
-        var primaryVideos: [String] = []
-        var primaryImages: [String] = []
-        for tag in Self.matches(in: html, pattern: "<meta\\b[^>]*>") {
-            let key = Self.capture(in: tag, pattern: "(?:property|name)=[\"']([^\"']+)[\"']")?.lowercased() ?? ""
-            guard let content = Self.capture(in: tag, pattern: "content=[\"']([^\"']+)[\"']"),
-                  content.range(of: "^https?://", options: [.regularExpression, .caseInsensitive]) != nil
-            else { continue }
-            if key.range(of: "og:video|twitter:player:stream", options: .regularExpression) != nil {
-                primaryVideos.append(content)
-            } else if key.range(of: "og:image|twitter:image", options: .regularExpression) != nil {
-                primaryImages.append(content)
-            }
-        }
-
-        let allUrls = Self.matches(
-            in: html,
-            pattern: "https?://[^\\s\"'<>]+?\\.(?:mp4|webm|m4v|mov|gif|webp|png|jpe?g)(?:\\?[^\\s\"'<>]*)?"
-        )
-
-        let isGif: (String) -> Bool = { $0.range(of: "\\.gif([?#]|$)", options: [.regularExpression, .caseInsensitive]) != nil }
-        let gifPost = primaryImages.contains(where: isGif)
-            || Self.contains(html, "[\"'](?:isGif|is_gif)[\"']\\s*:\\s*true")
-            || Self.contains(html, "[\"'](?:mediaType|media_type)[\"']\\s*:\\s*[\"']gif[\"']")
-        let videoPost = !primaryVideos.isEmpty
-            || Self.contains(html, "[\"'](?:isVideo|is_video)[\"']\\s*:\\s*true")
-            || Self.contains(html, "[\"'](?:mediaType|media_type)[\"']\\s*:\\s*[\"']video[\"']")
-            || Self.contains(html, "<video\\b")
-
-        // Video gönderisinde kapak görselini "birincil" saymak, videoyu isterken
-        // sessizce jpg indirmek demekti — o yüzden bilerek boş bırakılıyor.
-        let primary: [String]
-        if !primaryVideos.isEmpty { primary = primaryVideos }
-        else if gifPost { primary = primaryImages.filter(isGif) }
-        else if videoPost { primary = [] }
-        else { primary = primaryImages }
-
-        var seen = Set<String>()
-        let unique = (primary + allUrls).filter { seen.insert($0).inserted }
-        let primarySet = Set(primary)
-
-        // Sıralama eklentiyle birebir: önce birincil, sonra gönderi türüne göre
-        // gif/mp4, sonra Scrolller'ın kendi CDN'i, en son sayfadaki sıra.
-        return unique.enumerated()
-            .sorted { a, b in
-                let pa = primarySet.contains(a.element), pb = primarySet.contains(b.element)
-                if pa != pb { return pa }
-                if gifPost {
-                    let ga = isGif(a.element), gb = isGif(b.element)
-                    if ga != gb { return ga }
-                } else {
-                    let ma = a.element.range(of: "\\.mp4([?#]|$)", options: [.regularExpression, .caseInsensitive]) != nil
-                    let mb = b.element.range(of: "\\.mp4([?#]|$)", options: [.regularExpression, .caseInsensitive]) != nil
-                    if ma != mb { return ma }
-                }
-                // Scrolller'ın video CDN'i `photon.scrolller.com`. Eskiden
-                // "proton" yazıyordu; hiçbir adrese uymadığından bu basamak
-                // sessizce ölü kalıyor, sıralama sayfa sırasına düşüyordu.
-                let ca = Self.contains(a.element, "://photon\\.scrolller\\.com/")
-                let cb = Self.contains(b.element, "://photon\\.scrolller\\.com/")
-                if ca != cb { return ca }
-                return a.offset < b.offset
-            }
-            .map(\.element)
+        SharedCore.shared.value([String].self, operation: "scrolller", input: raw, fallback: [])
     }
 
     // MARK: - Reddit
@@ -274,25 +205,4 @@ actor MediaResolver {
         return out
     }
 
-    // MARK: - Regex yardımcıları
-
-    private static func matches(in text: String, pattern: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
-        let range = NSRange(text.startIndex..., in: text)
-        return regex.matches(in: text, range: range).compactMap {
-            Range($0.range, in: text).map { String(text[$0]) }
-        }
-    }
-
-    private static func capture(in text: String, pattern: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              match.numberOfRanges > 1,
-              let range = Range(match.range(at: 1), in: text) else { return nil }
-        return String(text[range])
-    }
-
-    private static func contains(_ text: String, _ pattern: String) -> Bool {
-        text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
-    }
 }

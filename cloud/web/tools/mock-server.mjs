@@ -150,7 +150,13 @@ const server = createServer(async (req, res) => {
     return json(res, []);
   }
 
-  if (path.startsWith("/api/thumb/")) return json(res, { ok: false, error: "yok" }, 404);
+  // Eksik kapak/avatar: 404 değil 204. Hata statüsü olmadığından tarayıcı
+  // konsola "Failed to load resource" basmaz; <img> yine error verip üretimi
+  // tetikler, fetch de boş gövdeyi "yok" sayar. (Gerçek Worker da böyle döner.)
+  if (path.startsWith("/api/thumb/") || path.startsWith("/api/avatar/")) {
+    res.writeHead(204, { "Cache-Control": "private, max-age=300" });
+    return res.end();
+  }
 
   if (path.startsWith("/api/media/")) {
     if (req.method === "DELETE") return json(res, { ok: true });

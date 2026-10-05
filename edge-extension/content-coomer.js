@@ -1,6 +1,9 @@
+// Generated from shared/sites/coomer.js; run npm run build:shared. Do not edit.
+// Shared source; platform packages are generated from this file.
 (() => {
   if (window.top !== window || window.__rgCoomerLoaded) return;
   window.__rgCoomerLoaded = true;
+  const life = globalThis.RG_LIFECYCLE?.create("coomer") || { listen:(t,...a)=>t.addEventListener(...a), unlisten:(t,...a)=>t.removeEventListener(...a), MutationObserver, setInterval:globalThis.setInterval.bind(globalThis), clearInterval:globalThis.clearInterval.bind(globalThis), raf:globalThis.requestAnimationFrame.bind(globalThis), cancelAnimationFrame:globalThis.cancelAnimationFrame.bind(globalThis) };
 
   const BUTTON_CLASS = "rg-coomer-download";
   const LINK_HOST_CLASS = "rg-coomer-media-link";
@@ -251,12 +254,15 @@
       event.stopPropagation();
       if (button.disabled) return;
       button.disabled = true;
+      globalThis.RG_UI?.toast("İndirme hazırlanıyor…", "info");
       try {
         await sendDownload(url, fallbackUrl, userName || profileName());
+        globalThis.RG_UI?.toast("İndirme başlatıldı.", "info");
         button.style.setProperty("background", "#15803d", "important");
         setTimeout(() => button.style.removeProperty("background"), 900);
       } catch (error) {
         console.error("[rg-coomer] download failed", error);
+        globalThis.RG_UI?.toast(String(error?.message || error), "error");
         button.style.setProperty("background", "#b91c1c", "important");
         button.title = String(error?.message || error || "E_FAILED");
       } finally {
@@ -372,7 +378,7 @@
   function scheduleScan() {
     if (scanScheduled) return;
     scanScheduled = true;
-    requestAnimationFrame(() => {
+    life.raf(() => {
       scanScheduled = false;
       scan();
     });
@@ -437,8 +443,8 @@
     return [];
   };
 
-  new MutationObserver(scheduleScan).observe(document.documentElement, { childList: true, subtree: true });
-  window.addEventListener("popstate", scheduleScan);
+  new life.MutationObserver(scheduleScan).observe(document.documentElement, { childList: true, subtree: true });
+  life.listen(window, "popstate", scheduleScan);
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local" || !changes[SETTINGS_KEY]) return;
     settings = { ...globalThis.RG_SETTINGS.DEFAULT_SETTINGS, ...(changes[SETTINGS_KEY].newValue || {}) };
@@ -450,4 +456,5 @@
     applyButtonVisibility();
     scan();
   });
+  life.onResume = scheduleScan;
 })();

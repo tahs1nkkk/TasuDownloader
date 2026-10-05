@@ -255,7 +255,11 @@ async function handleThumb(request, env, url) {
       }
     }
     const object = await env.MEDIA.get(cacheKey);
-    if (!object) return json({ ok: false, error: "yok" }, 404);
+    // Kapak yoksa 404 değil 204 dön: hata statüsü olmadığından tarayıcı konsola
+    // "Failed to load resource" basmaz. <img> boş gövdede yine `error` verir, o
+    // da istemciye kapağı ürettirir. no-store: üretilip PUT edilen kapak bir
+    // sonraki istekte (aynı oturumda kart geri dönerken de) 200 gelsin.
+    if (!object) return new Response(null, { status: 204, headers: { "Cache-Control": "private, no-store" } });
     return new Response(pace(object.body, bytesPerSec(request, url)), {
       headers: {
         "Content-Type": "image/jpeg",
@@ -301,7 +305,11 @@ async function handleAvatar(request, env, url) {
       }
     }
     const object = await env.MEDIA.get(key);
-    if (!object) return json({ ok: false, error: "yok" }, 404);
+    // Profil resmi yoksa 404 değil 204: konsol temiz kalsın (istemci fetch ile
+    // okuyup boş gövdeyi "yok" sayar; <img src> hiç kurulmaz). Kısa önbellek —
+    // profil sonradan (iOS'tan) yüklenirse birkaç dakikada görünür, ama o zamana
+    // dek aynı profili paylaşan onlarca satır için ayrı ayrı istek atılmaz.
+    if (!object) return new Response(null, { status: 204, headers: { "Cache-Control": "private, max-age=300" } });
     return new Response(pace(object.body, bytesPerSec(request, url)), {
       headers: {
         "Content-Type": (object.httpMetadata && object.httpMetadata.contentType) || "image/jpeg",
