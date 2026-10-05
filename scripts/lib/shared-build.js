@@ -81,6 +81,15 @@ function manifestFor(platform, template) {
   return manifest;
 }
 
+// The hub compares its menu and worker builds; both read this one stamped value.
+function hubCatalog() {
+  const file = path.join(root, "edge-extension/hub/catalog.js");
+  const source = fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
+  const pattern = /\bbuild: "[^"]*"/g;
+  if ((source.match(pattern) || []).length !== 1) throw new Error("edge-extension/hub/catalog.js must declare exactly one build value");
+  return source.replace(pattern, `build: ${JSON.stringify(buildInfo("edge").platformVersion)}`);
+}
+
 function edgeOutputs() {
   const outputs = new Map(Object.keys(assets).map((name) => [path.join(root, "edge-extension", name), generatedAsset(name)]));
   outputs.set(path.join(root, "ios-app/Sources/Downloads/DownloadRequest.swift"), swiftDownloadRequest());
@@ -88,6 +97,7 @@ function edgeOutputs() {
   outputs.set(path.join(root, "ios-app/Versions.xcconfig"),
     `// Generated from shared/core/version.js; run npm run build:shared. Do not edit.\nMARKETING_VERSION = ${developmentBuild.version}\nCURRENT_PROJECT_VERSION = ${developmentBuild.buildNumber}\n`);
   outputs.set(path.join(root, "edge-extension/build-info.json"), `${JSON.stringify(buildInfo("edge"), null, 2)}\n`);
+  outputs.set(path.join(root, "edge-extension/hub/catalog.js"), hubCatalog());
   for (const [platform, relative] of [
     ["edge", "edge-extension/manifest.json"],
     ["orion", "orion-ios/manifest.mv3.json"],

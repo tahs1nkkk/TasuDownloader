@@ -27,6 +27,10 @@ test("the iOS feed uses the bundle version and only advertises supported sites",
   assert.throws(() => makeSource({ ...args, version: "1.0.0" }), /does not match/);
   assert.throws(() => makeSource({ ...args, size: NaN }), /IPA size/);
 });
+test("the Edge hub build is stamped from the Edge platform version", () => {
+  const catalog = fs.readFileSync(path.join(root, "edge-extension/hub/catalog.js"), "utf8");
+  assert.deepEqual(catalog.match(/\bbuild: "([^"]*)"/g), [`build: "${versions.platforms.edge}"`]);
+});
 test("all existing platforms record the same core and contract version", () => {
   const infos = ["edge", "orion", "ios"].map(buildInfo);
   assert.equal(new Set(infos.map((info) => info.coreVersion)).size, 1);
